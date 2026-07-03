@@ -66,7 +66,7 @@ The bus carries CONCLUSIONS ONLY. Long reasoning, raw data, and code go to
 
 1. blind   Write your own analysis to `analysis/<seat>.md`, then post ONE
            `claim` summarizing it. DO NOT read other seats' analyses or
-           claims. This prevents anchoring. `cx read` enforces the filter.
+           claims. This prevents anchoring. `cxam read` enforces the filter.
 2. debate  Read others' analyses. Pick their CONCRETE, CHECKABLE statements
            and verify them by running real commands — no praising, no
            doubting without evidence. Post `verify`/`challenge` with refs.
@@ -77,9 +77,9 @@ The bus carries CONCLUSIONS ONLY. Long reasoning, raw data, and code go to
 
 ## Per-turn loop (your CLI's hook or memory file should remind you)
 
-    cx read            # unread messages (blind-filtered when appropriate)
+    cxam read            # unread messages (blind-filtered when appropriate)
     ...work...
-    cx post verify "claim X holds, 7/7 rows reproduced" --ref analysis/me.md#x
+    cxam post verify "claim X holds, 7/7 rows reproduced" --ref analysis/me.md#x
     # cursor advances automatically on read
 
 ## Iron rules
@@ -200,14 +200,14 @@ def fmt(m):
 
 
 def die(msg, code=1):
-    print("cx: " + msg, file=sys.stderr)
+    print("cxam: " + msg, file=sys.stderr)
     return code
 
 
 def need_dir():
     d = find_msg_dir()
     if d is None:
-        print("cx: no _Msg/ found here or in any parent. Run `cx init` in the "
+        print("cxam: no _Msg/ found here or in any parent. Run `cxam init` in the "
               "project root first.", file=sys.stderr)
     return d
 
@@ -257,7 +257,7 @@ def cmd_post(args):
     if args.ref:
         rec["ref"] = args.ref
     if (args.type in ("verify", "challenge")) and not args.ref:
-        print("cx: warning: {} without --ref. Evidence or it didn't happen."
+        print("cxam: warning: {} without --ref. Evidence or it didn't happen."
               .format(args.type), file=sys.stderr)
     append_msg(d, rec)
     print("posted #{} as {} ({})".format(bus_line_count(d), seat, args.type))
@@ -379,8 +379,8 @@ def cmd_hook(args):
     phase = read_phase(d)
     cursor = get_cursor(d, seat)
     unread = sum(1 for m in msgs if m["_line"] > cursor)
-    print("[CrossExam] seat={} phase={} unread={} (of {}). Run `cx read` before "
-          "working, post conclusions with `cx post`. Protocol: {}/PROTOCOL.md"
+    print("[CrossExam] seat={} phase={} unread={} (of {}). Run `cxam read` before "
+          "working, post conclusions with `cxam post`. Protocol: {}/PROTOCOL.md"
           .format(seat, phase, unread, len(msgs), d))
     if phase == "blind":
         print("[CrossExam] BLIND PHASE: do not read other seats' analyses or "
@@ -410,7 +410,7 @@ def cmd_watch(args):
 
 def main(argv=None):
     p = argparse.ArgumentParser(
-        prog="cx",
+        prog="cxam",
         description="CrossExam: let your AI CLIs cross-examine each other.")
     p.add_argument("--version", action="version", version="crossexam " + __version__)
     sub = p.add_subparsers(dest="cmd")

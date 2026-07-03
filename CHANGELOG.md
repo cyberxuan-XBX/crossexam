@@ -4,7 +4,7 @@
 
 Initial release.
 
-- `cx init / post / read / status / phase / log / hook / watch`
+- `cxam init / post / read / status / phase / log / hook / watch`
 - Three-phase protocol: blind → debate → closed
 - Blind-phase filtering with frozen cursor (withheld messages re-delivered in debate)
 - Phase-aware posting rules (no verify/challenge/concede during blind)

@@ -10,7 +10,7 @@ message bus in _Msg/.
 
 Identity: your seat name is in $CX_SEAT.
 
-Every turn, FIRST run `cx read` (or, without the CLI installed:
+Every turn, FIRST run `cxam read` (or, without the CLI installed:
   seen=$(cat _Msg/.seen/$CX_SEAT 2>/dev/null || echo 0)
   tail -n +$((seen+1)) _Msg/bus.jsonl
   wc -l < _Msg/bus.jsonl > _Msg/.seen/$CX_SEAT )
@@ -21,7 +21,7 @@ Rules:
   one claim. DO NOT read other seats' analyses or claims yet.
 - debate: verify other seats' concrete claims by running real commands. Post
   verify/challenge with an evidence ref. Concede explicitly when you lose.
-- Post with `cx post <type> "<msg>" --ref <evidence>` or append one JSON line:
+- Post with `cxam post <type> "<msg>" --ref <evidence>` or append one JSON line:
   {"ts":"<iso8601>","from":"$CX_SEAT","type":"claim|verify|challenge|concede|info","ref":"...","msg":"..."}
 - Append-only. Conclusions on the bus; essays in analysis/.
 ```

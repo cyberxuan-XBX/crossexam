@@ -26,7 +26,7 @@ CrossExam 就是把這個工作流機械化。
 pip install crossexam
 
 cd your-project
-cx init --task "稽核 auth.py 的 token 過期 bug"
+cxam init --task "稽核 auth.py 的 token 過期 bug"
 
 # 每個模型開一個終端，想釘什麼版本就釘什麼版本
 CX_SEAT=sonnet claude
@@ -43,7 +43,7 @@ CX_SEAT=gemini gemini
 
 | 階段 | 做什麼 | CLI 強制什麼 |
 |---|---|---|
-| **blind 盲寫** | 各席位獨立分析，發一條 `claim` | `cx read` 扣留他人訊息（防錨定）；拒收 verify/challenge/concede |
+| **blind 盲寫** | 各席位獨立分析，發一條 `claim` | `cxam read` 扣留他人訊息（防錨定）；拒收 verify/challenge/concede |
 | **debate 互驗** | 挑他人「具體可查證」的說法，**跑指令**驗證 | verify/challenge 不附證據 `--ref` 會被警告；輸了明文 `concede` |
 | **closed 收斂** | 指定席位寫 `synthesis.md`：共識 + **分歧表** | bus 只收 info |
 

@@ -34,7 +34,7 @@ Homepage = "https://github.com/cyberxuan-XBX/crossexam"
 Issues = "https://github.com/cyberxuan-XBX/crossexam/issues"
 
 [project.scripts]
-cx = "crossexam:main"
+cxam = "crossexam:main"
 crossexam = "crossexam:main"
 
 [tool.setuptools]

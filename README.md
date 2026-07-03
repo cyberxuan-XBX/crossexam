@@ -49,14 +49,14 @@ workflow, mechanized.
 
 ```bash
 pip install crossexam
-# or: no install at all — copy crossexam.py anywhere and alias cx='python3 crossexam.py'
+# or: no install at all — copy crossexam.py anywhere and alias cxam='python3 crossexam.py'
 ```
 
 ## Quickstart
 
 ```bash
 cd your-project
-cx init --task "Audit auth.py for the token expiry bug"
+cxam init --task "Audit auth.py for the token expiry bug"
 
 # open one terminal per model — pin whatever exact versions you like
 CX_SEAT=sonnet claude
@@ -69,10 +69,10 @@ Wire each CLI with its adapter (one hook or one memory-file snippet — see
 seat reads its unread messages, works, and posts conclusions back:
 
 ```bash
-cx read                                                    # what did the others find?
-cx post claim "63 on site; 7 ghost exits" --ref analysis/gpt.md#ghosts
-cx post verify "sonnet's pairing check reproduces, 7/7"    --ref analysis/gpt.md#recheck
-cx post concede "my count was an aggregate artifact; adopting gpt's frame"
+cxam read                                                    # what did the others find?
+cxam post claim "63 on site; 7 ghost exits" --ref analysis/gpt.md#ghosts
+cxam post verify "sonnet's pairing check reproduces, 7/7"    --ref analysis/gpt.md#recheck
+cxam post concede "my count was an aggregate artifact; adopting gpt's frame"
 ```
 
 You stop being the message bus. Your only job: say "continue" in whichever
@@ -88,11 +88,11 @@ bash examples/simulated-debate.sh
 
 ## The protocol
 
-Three phases, enforced by the CLI, flipped by you (`cx phase debate`):
+Three phases, enforced by the CLI, flipped by you (`cxam phase debate`):
 
 | Phase | What happens | What's enforced |
 |---|---|---|
-| **blind** | Each seat writes an independent analysis and posts one `claim` | `cx read` withholds other seats' messages (anti-anchoring); `verify`/`challenge`/`concede` are rejected |
+| **blind** | Each seat writes an independent analysis and posts one `claim` | `cxam read` withholds other seats' messages (anti-anchoring); `verify`/`challenge`/`concede` are rejected |
 | **debate** | Seats read each other, pick *concrete, checkable* statements, and verify them **by running commands** | `verify`/`challenge` without an evidence `--ref` get warned; losers post explicit `concede` |
 | **closed** | A designated seat writes `synthesis.md`: consensus + **disagreement table** | Bus accepts `info` only |
 
@@ -128,7 +128,7 @@ needed**. Divergence is signal, not noise.
   query N APIs in parallel answer one prompt; CrossExam coordinates *agentic
   sessions* that investigate with tools over hours.
 - Not a hard security boundary — the blind phase is enforced by the sanctioned
-  interface (`cx read`) and adapter instructions, but a misbehaving agent
+  interface (`cxam read`) and adapter instructions, but a misbehaving agent
   could still `cat` the bus. It's a discipline, mechanically assisted.
 
 ## FAQ
@@ -153,15 +153,31 @@ Yes — pure-stdlib Python; the file locking degrades gracefully.
 
 ## Related work
 
-*(comparison table maintained against the projects we could verify; PRs welcome)*
+We surveyed 40+ neighbors on 2026-07-04 — full table with verified stars in
+[docs/related-work.md](docs/related-work.md). The landscape in one paragraph:
 
-See [docs/related-work.md](docs/related-work.md) for the full survey. The
-short version: process managers (claude-squad and friends) run many sessions
-but don't make them talk; API councils (llm-council and friends) make models
-talk but at prompt-level, not agentic-session-level; multi-agent frameworks
-(AutoGen and friends) require you to rebuild your agents inside the framework.
-CrossExam is the missing piece: a vendor-neutral wire protocol for the CLI
-agents you already run.
+- **Transports** ([agmsg](https://github.com/fujibee/agmsg),
+  [hcom](https://github.com/aannoo/hcom)) move messages between CLI agents but
+  ship no verification protocol — no phases, no blind stage, no synthesis.
+- **API councils** ([llm-council](https://github.com/karpathy/llm-council),
+  [PAL/zen-mcp](https://github.com/BeehiveInnovations/pal-mcp-server),
+  [MoA](https://github.com/togethercomputer/MoA),
+  [ensemble](https://github.com/raiyanyahya/ensemble)) make models debate each
+  other's *text* — reviewers never run a command against your repo, so
+  cross-examination stays rhetorical.
+- **Process managers** ([claude-squad](https://github.com/smtg-ai/claude-squad),
+  [Crystal](https://github.com/stravu/crystal)) run many sessions side by
+  side; the sessions never talk. (They compose nicely with CrossExam.)
+- **Orchestrator-graders**
+  ([adversarial-review](https://github.com/alecnielsen/adversarial-review),
+  [codex-adversary](https://github.com/todd866/codex-adversary)) have one lead
+  model shell out to others and grade the answers — the examiner grades its
+  own homework.
+
+As far as we could verify, the intersection CrossExam occupies — **live
+cross-vendor CLI sessions as peer seats × command-verified cross-examination ×
+a git-diffable bus in your project root** — is empty. If we missed someone,
+open an issue; we'll cite them.
 
 ## Disclaimer
 

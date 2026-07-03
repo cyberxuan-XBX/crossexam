@@ -3,7 +3,7 @@
 # lifecycle in ~5 seconds so you can see what your agents will be doing.
 # Run from anywhere:  bash examples/simulated-debate.sh
 set -e
-CX="${CX:-cx}"
+CX="${CX:-cxam}"
 command -v "$CX" >/dev/null || CX="python3 $(cd "$(dirname "$0")/.." && pwd)/crossexam.py"
 
 ARENA=$(mktemp -d)

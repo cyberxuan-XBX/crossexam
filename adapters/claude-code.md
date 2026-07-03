@@ -7,13 +7,13 @@ prompt you type, the session first sees its unread count.
 ## 1. Hook (recommended)
 
 Add to `.claude/settings.json` (project) or `~/.claude/settings.json` (global —
-safe: `cx hook` prints nothing in projects without `_Msg/`):
+safe: `cxam hook` prints nothing in projects without `_Msg/`):
 
 ```json
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "cx hook", "timeout": 3 } ] }
+      { "hooks": [ { "type": "command", "command": "cxam hook", "timeout": 3 } ] }
     ]
   }
 }
@@ -25,8 +25,8 @@ safe: `cx hook` prints nothing in projects without `_Msg/`):
 ## CrossExam
 This project may contain a `_Msg/` directory: a message bus shared with other
 AI CLI sessions working the same task. When the hook reports unread messages:
-run `cx read` before working, do the work, then post your conclusion with
-`cx post <type> "<one-liner>" --ref analysis/<seat>.md#anchor`.
+run `cxam read` before working, do the work, then post your conclusion with
+`cxam post <type> "<one-liner>" --ref analysis/<seat>.md#anchor`.
 Obey the phase: during `blind`, never read other seats' analyses or claims.
 Verify others' claims by RUNNING COMMANDS, not by rhetoric.
 ```
