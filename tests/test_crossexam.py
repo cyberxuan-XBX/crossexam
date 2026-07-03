@@ -1,0 +1,236 @@
+"""CrossExam test suite. Run: pytest -q"""
+import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import crossexam as cx
+
+
+@pytest.fixture()
+def arena(tmp_path, monkeypatch, capsys):
+    """Fresh initialized _Msg in a tmp project dir."""
+    monkeypatch.chdir(tmp_path)
+    for var in cx.SEAT_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    assert cx.main(["init", "--task", "count the sheep"]) == 0
+    capsys.readouterr()
+    return tmp_path
+
+
+def seat(monkeypatch, name):
+    monkeypatch.setenv("CX_SEAT", name)
+
+
+def bus_lines(root):
+    return (root / "_Msg" / "bus.jsonl").read_text().splitlines()
+
+
+# ---------------------------------------------------------------- init
+
+def test_init_creates_structure(arena):
+    d = arena / "_Msg"
+    assert (d / "task.md").is_file()
+    assert (d / "PROTOCOL.md").is_file()
+    assert (d / "bus.jsonl").is_file()
+    assert (d / ".seen").is_dir()
+    assert (d / "analysis").is_dir()
+    assert "count the sheep" in (d / "task.md").read_text()
+    assert cx.read_phase(d) == "blind"
+
+
+def test_init_idempotent(arena, capsys):
+    (arena / "_Msg" / "task.md").write_text("# Task\nstatus: debate\n\ncustom")
+    assert cx.main(["init"]) == 0
+    assert "custom" in (arena / "_Msg" / "task.md").read_text()  # not clobbered
+
+
+def test_find_msg_dir_walks_up(arena, monkeypatch):
+    sub = arena / "deep" / "nested"
+    sub.mkdir(parents=True)
+    monkeypatch.chdir(sub)
+    assert cx.find_msg_dir() == arena / "_Msg"
+
+
+def test_no_dir_errors(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CX_SEAT", "a")
+    assert cx.main(["post", "info", "hello"]) == 2
+
+
+# ---------------------------------------------------------------- post
+
+def test_post_requires_seat(arena, capsys):
+    assert cx.main(["post", "claim", "x"]) == 1
+    assert "no seat" in capsys.readouterr().err
+
+
+def test_post_and_bus_format(arena, monkeypatch, capsys):
+    seat(monkeypatch, "sonnet")
+    assert cx.main(["post", "claim", "63 sheep, not 56", "--ref",
+                    "analysis/sonnet.md#count"]) == 0
+    rec = json.loads(bus_lines(arena)[-1])
+    assert rec["from"] == "sonnet"
+    assert rec["type"] == "claim"
+    assert rec["ref"] == "analysis/sonnet.md#count"
+    assert "ts" in rec
+
+
+def test_blind_blocks_verify(arena, monkeypatch, capsys):
+    seat(monkeypatch, "sonnet")
+    assert cx.main(["post", "verify", "checked"]) == 1
+    assert "blind" in capsys.readouterr().err
+
+
+def test_closed_blocks_claims(arena, monkeypatch, capsys):
+    seat(monkeypatch, "mod")
+    assert cx.main(["phase", "closed"]) == 0
+    assert cx.main(["post", "claim", "late claim"]) == 1
+
+
+def test_overlong_message_rejected(arena, monkeypatch, capsys):
+    seat(monkeypatch, "sonnet")
+    assert cx.main(["post", "claim", "x" * 1300]) == 1
+    assert "too long" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- read / cursor
+
+def test_read_cursor_advances(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "one"])
+    capsys.readouterr()
+    seat(monkeypatch, "b")
+    cx.main(["phase", "debate"])  # unlock full read
+    capsys.readouterr()
+    assert cx.main(["read"]) == 0
+    out = capsys.readouterr().out
+    assert "one" in out
+    assert cx.main(["read"]) == 0
+    assert "no unread" in capsys.readouterr().out
+
+
+def test_peek_does_not_advance(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["phase", "debate"])
+    cx.main(["post", "claim", "one"])
+    capsys.readouterr()
+    seat(monkeypatch, "b")
+    cx.main(["read", "--peek"])
+    capsys.readouterr()
+    cx.main(["read"])
+    assert "one" in capsys.readouterr().out
+
+
+def test_blind_read_withholds_others(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "secret of a"])
+    capsys.readouterr()
+    seat(monkeypatch, "b")
+    assert cx.main(["read"]) == 0
+    out = capsys.readouterr().out
+    assert "secret of a" not in out
+    assert "withheld" in out
+
+
+def test_blind_cursor_frozen_then_redelivered(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "hidden gem"])
+    capsys.readouterr()
+    seat(monkeypatch, "b")
+    cx.main(["read"])  # withheld, cursor frozen
+    capsys.readouterr()
+    seat(monkeypatch, "mod")
+    cx.main(["phase", "debate"])
+    capsys.readouterr()
+    seat(monkeypatch, "b")
+    cx.main(["read"])
+    assert "hidden gem" in capsys.readouterr().out
+
+
+def test_unseated_read_is_moderator_view(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "visible to humans"])
+    capsys.readouterr()
+    for var in cx.SEAT_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    cx.main(["read"])
+    assert "visible to humans" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- phase / status / log / hook
+
+def test_phase_show_and_set(arena, monkeypatch, capsys):
+    assert cx.main(["phase"]) == 0
+    assert capsys.readouterr().out.strip() == "blind"
+    seat(monkeypatch, "mod")
+    assert cx.main(["phase", "debate"]) == 0
+    capsys.readouterr()
+    assert cx.read_phase(arena / "_Msg") == "debate"
+    # phase change is announced on the bus
+    assert any(json.loads(l)["msg"] == "phase -> debate" for l in bus_lines(arena))
+
+
+def test_status_counts(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "one"])
+    cx.main(["post", "info", "two"])
+    capsys.readouterr()
+    assert cx.main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert "phase: blind" in out
+    assert "a" in out and "posted 2" in out
+
+
+def test_log_blind_filter_and_all_flag(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "alpha finding"])
+    capsys.readouterr()
+    seat(monkeypatch, "b")
+    cx.main(["log"])
+    assert "alpha finding" not in capsys.readouterr().out
+    cx.main(["log", "--all"])
+    assert "alpha finding" in capsys.readouterr().out
+
+
+def test_hook_silent_without_dir(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert cx.main(["hook"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_hook_reports_unread_and_blind(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "x"])
+    capsys.readouterr()
+    seat(monkeypatch, "b")
+    assert cx.main(["hook"]) == 0
+    out = capsys.readouterr().out
+    assert "unread=1" in out
+    assert "BLIND" in out
+
+
+# ---------------------------------------------------------------- robustness
+
+def test_malformed_bus_lines_skipped(arena, monkeypatch, capsys):
+    with open(arena / "_Msg" / "bus.jsonl", "a") as f:
+        f.write("this is not json\n")
+    seat(monkeypatch, "a")
+    cx.main(["post", "info", "after garbage"])
+    capsys.readouterr()
+    assert cx.main(["log"]) == 0
+    out = capsys.readouterr()
+    assert "after garbage" in out.out
+    assert "malformed" in out.err
+
+
+def test_newlines_in_message_stay_one_bus_line(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    before = len(bus_lines(arena))
+    assert cx.main(["post", "info", "line one\nline two"]) == 0
+    lines = bus_lines(arena)
+    assert len(lines) == before + 1
+    assert json.loads(lines[-1])["msg"] == "line one\nline two"
