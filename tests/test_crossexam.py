@@ -312,6 +312,93 @@ def test_seat_unparseable_reply_saves_raw(arena, monkeypatch, capsys):
     assert (arena / "_Msg" / "analysis" / "qwen.raw.txt").read_text() == "utter prose, no json"
 
 
+# ---------------------------------------------------------------- cxam run
+
+def fake_agent_runner(script):
+    """Simulate a headless CLI agent: on each turn, act per current phase."""
+    def runner(seat_name, cmd_template, prompt, timeout, cli="cxam"):
+        d = cx.find_msg_dir()
+        phase = cx.read_phase(d)
+        if phase == "blind":
+            cx.append_msg(d, {"ts": "t", "from": seat_name, "type": "claim",
+                              "msg": script.get(seat_name, "claim by " + seat_name)})
+        elif phase == "debate":
+            cx.append_msg(d, {"ts": "t", "from": seat_name, "type": "verify",
+                              "msg": "checked", "ref": "analysis/x.md"})
+        else:
+            (d / "synthesis.md").write_text(
+                "## Consensus\nok\n## Disagreements\nnone", encoding="utf-8")
+        return True
+    return runner
+
+
+def test_run_full_lifecycle_with_agents_and_api(arena, monkeypatch, capsys):
+    monkeypatch.setattr(cx, "run_agent_turn", fake_agent_runner({}))
+    monkeypatch.setattr(cx, "http_chat", lambda *a, **k: REPLY)
+    rc = cx.main(["run", "--force", "--task", "count sheep",
+                  "--agent", "sonnet=claude -p {prompt}",
+                  "--api", "qwen=http://x/v1|m"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "blind round (2 seats)" in out
+    assert "== synthesis" in out
+    assert "## Consensus" in out
+    recs = [json.loads(l) for l in bus_lines(arena)]
+    claimants = {r["from"] for r in recs if r["type"] == "claim"}
+    assert claimants == {"sonnet", "qwen"}    # both seats claimed in blind
+    assert any(r["type"] == "verify" for r in recs)
+    assert cx.read_phase(arena / "_Msg") == "closed"
+
+
+def test_run_refuses_dirty_bus_without_force(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "info", "old traffic"])
+    capsys.readouterr()
+    rc = cx.main(["run", "--agent", "s=claude -p {prompt}"])
+    assert rc == 1
+    assert "already has traffic" in capsys.readouterr().err
+
+
+def test_run_requires_seats(arena, capsys):
+    assert cx.main(["run", "--force"]) == 1
+
+
+def test_run_copies_exhibits(arena, monkeypatch, capsys, tmp_path):
+    src = tmp_path / "material.txt"
+    src.write_text("EVIDENCE")
+    monkeypatch.setattr(cx, "run_agent_turn", fake_agent_runner({}))
+    assert cx.main(["run", "--force", "--exhibit", str(src),
+                    "--agent", "s=claude -p {prompt}"]) == 0
+    assert (arena / "_Msg" / "exhibits" / "material.txt").read_text() == "EVIDENCE"
+
+
+def test_run_warns_on_missing_claim(arena, monkeypatch, capsys):
+    def lazy_runner(seat_name, cmd_template, prompt, timeout, cli="cxam"):
+        return True  # agent runs but never posts
+    monkeypatch.setattr(cx, "run_agent_turn", lazy_runner)
+    cx.main(["run", "--force", "--agent", "lazy=claude -p {prompt}"])
+    assert "no claim from: lazy" in capsys.readouterr().err
+
+
+def test_run_agent_turn_appends_prompt_and_env(arena, monkeypatch):
+    captured = {}
+
+    def fake_sub(cmd, shell, env, timeout, capture_output, text):
+        captured["cmd"] = cmd
+        captured["seat"] = env.get("CX_SEAT")
+
+        class R:
+            returncode = 0
+            stdout = stderr = ""
+        return R()
+
+    monkeypatch.setattr(cx.subprocess, "run", fake_sub)
+    assert cx.run_agent_turn("s1", "claude -p {prompt}", "do the thing", 5)
+    assert "do the thing" in captured["cmd"]
+    assert "{prompt}" not in captured["cmd"]
+    assert captured["seat"] == "s1"
+
+
 def test_newlines_in_message_stay_one_bus_line(arena, monkeypatch, capsys):
     seat(monkeypatch, "a")
     before = len(bus_lines(arena))

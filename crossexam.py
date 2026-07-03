@@ -12,13 +12,15 @@ no API keys, no vendor lock-in. If your agent can run shell commands, it
 can sit at the table.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 import argparse
 import datetime
 import json
 import os
 import re
+import shlex
+import subprocess
 import sys
 import time
 import urllib.error
@@ -136,6 +138,37 @@ PHASE_INSTRUCTIONS = {
         "if a claim holds, 'challenge' with cited evidence if it does not, or "
         "'concede' if your own earlier claim is beaten (say whose framework "
         "you adopt). No praising and no doubting without cited evidence."),
+}
+
+AGENT_PROMPTS = {
+    "blind": (
+        "You are seat '{seat}' on a CrossExam review panel in this directory. "
+        "Read _Msg/PROTOCOL.md and _Msg/task.md (material, if any, is in "
+        "_Msg/exhibits/). The phase is BLIND: do your own independent "
+        "investigation now — do NOT read other seats' analyses or claims. "
+        "Write your full analysis to _Msg/analysis/{seat}.md, then post "
+        "exactly one conclusion:\n"
+        "  {cli} post claim \"<one-line conclusion with key numbers>\" "
+        "--ref analysis/{seat}.md"),
+    "debate": (
+        "You are seat '{seat}' on a CrossExam review panel in this directory. "
+        "The phase is DEBATE. Run `{cli} read`, then read the other seats' "
+        "files in _Msg/analysis/. Pick their concrete, checkable statements "
+        "and verify them by RUNNING REAL COMMANDS — no praising, no doubting "
+        "without evidence. Post your findings:\n"
+        "  {cli} post verify|challenge \"<what you checked and found>\" "
+        "--ref <evidence>\n"
+        "If your own earlier claim is beaten, post a concede naming whose "
+        "framework you adopt. Append your verification details to "
+        "_Msg/analysis/{seat}.md."),
+    "synthesis": (
+        "You are seat '{seat}', designated synthesizer of a CrossExam panel "
+        "in this directory. The phase is CLOSED. Run `{cli} log --all`, read "
+        "every file in _Msg/analysis/, then write _Msg/synthesis.md with two "
+        "sections: '## Consensus' (conclusions that survived "
+        "cross-examination, with who verified what) and '## Disagreements' "
+        "(a table: claim | seats for | seats against | evidence status — do "
+        "NOT paper over disagreements; they mark where the human decides)."),
 }
 
 TASK_TEMPLATE = """\
@@ -504,13 +537,7 @@ def cmd_phase(args):
         return 0
     if args.phase not in PHASES:
         return die("phase must be one of: " + ", ".join(PHASES))
-    text = task.read_text(encoding="utf-8") if task.is_file() else TASK_TEMPLATE.format(task="")
-    new, n = re.subn(r"^status:\s*\S+", "status: " + args.phase, text, count=1, flags=re.M)
-    if n == 0:
-        new = "status: " + args.phase + "\n" + text
-    task.write_text(new, encoding="utf-8")
-    append_msg(d, {"ts": now_iso(), "from": get_seat() or "moderator",
-                   "type": "info", "msg": "phase -> " + args.phase})
+    set_phase(d, args.phase, who=get_seat() or "moderator")
     print("phase: " + args.phase)
     return 0
 
@@ -623,6 +650,172 @@ def cmd_seat(args):
     return record_advisory(d, seat, reply, "api")
 
 
+def parse_agent_spec(spec):
+    """'name=command with {prompt}' -> (name, command)."""
+    if "=" not in spec:
+        raise ValueError(spec)
+    name, cmd = spec.split("=", 1)
+    return name.strip(), cmd.strip()
+
+
+def parse_api_spec(spec):
+    """'name=endpoint|model' -> (name, endpoint, model)."""
+    name, rest = spec.split("=", 1)
+    endpoint, model = rest.rsplit("|", 1)
+    return name.strip(), endpoint.strip(), model.strip()
+
+
+def run_agent_turn(seat, cmd_template, prompt, timeout, cli="cxam"):
+    """Run one headless-CLI turn. The agent posts to the bus itself."""
+    if "{prompt}" in cmd_template:
+        cmd = cmd_template.replace("{prompt}", shlex.quote(prompt))
+    else:
+        cmd = cmd_template + " " + shlex.quote(prompt)
+    env = dict(os.environ, CX_SEAT=seat)
+    try:
+        r = subprocess.run(cmd, shell=True, env=env, timeout=timeout,
+                           capture_output=True, text=True)
+    except subprocess.TimeoutExpired:
+        print("  {}: TIMEOUT after {}s".format(seat, timeout), file=sys.stderr)
+        return False
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout or "").strip().splitlines()[-3:]
+        print("  {}: exit {} — {}".format(seat, r.returncode, " / ".join(tail)),
+              file=sys.stderr)
+        return False
+    return True
+
+
+def api_turn(d, seat, endpoint, model, key, timeout):
+    phase = read_phase(d)
+    prompt = build_brief(d, seat, phase)
+    try:
+        content = http_chat(endpoint, model, key, prompt, timeout=timeout)
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, KeyError,
+            json.JSONDecodeError) as e:
+        print("  {}: API call failed: {}".format(seat, e), file=sys.stderr)
+        return False
+    reply = parse_reply(content)
+    if reply is None:
+        print("  {}: unparseable reply, skipped".format(seat), file=sys.stderr)
+        return False
+    return record_advisory(d, seat, reply, "api") == 0
+
+
+def seat_has_posted(d, seat, mtype=None):
+    msgs, _ = load_msgs(d)
+    return any(m.get("from") == seat and (mtype is None or m.get("type") == mtype)
+               for m in msgs)
+
+
+def cmd_run(args):
+    """One-command panel: blind -> debate -> synthesis, no terminals juggling."""
+    try:
+        agents = [parse_agent_spec(s) for s in (args.agent or [])]
+        apis = [parse_api_spec(s) for s in (args.api or [])]
+    except ValueError as e:
+        return die("bad seat spec: {!r}. Use --agent 'name=claude -p {{prompt}}' "
+                   "or --api 'name=http://host/v1|model'".format(str(e)))
+    if not agents and not apis:
+        return die("no seats. Give at least one --agent or --api.")
+    seats = [n for n, _ in agents] + [n for n, _, _ in apis]
+    if len(set(seats)) != len(seats):
+        return die("duplicate seat names.")
+
+    d = Path.cwd() / MSG_DIR
+    if d.is_dir() and bus_line_count(d) > 0 and not args.force:
+        return die("_Msg/ already has traffic. Run in a fresh directory or "
+                   "pass --force to continue on top of it.")
+    if not d.is_dir():
+        ns = argparse.Namespace(task=args.task)
+        cmd_init(ns)
+    elif args.task:
+        (d / "task.md").write_text(TASK_TEMPLATE.format(task=args.task),
+                                   encoding="utf-8")
+    for x in (args.exhibit or []):
+        src = Path(x)
+        if not src.is_file():
+            return die("exhibit not found: {}".format(x))
+        (d / "exhibits").mkdir(exist_ok=True)
+        (d / "exhibits" / src.name).write_bytes(src.read_bytes())
+
+    key = args.api_key or os.environ.get("CX_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    cli = args.cli
+
+    def one_round(phase_name):
+        prompt_tpl = AGENT_PROMPTS[phase_name]
+        for seat_name, cmd_template in agents:
+            print("  [{}] {} ...".format(phase_name, seat_name))
+            run_agent_turn(seat_name, cmd_template,
+                           prompt_tpl.format(seat=seat_name, cli=cli),
+                           args.seat_timeout, cli)
+        for seat_name, endpoint, model in apis:
+            print("  [{}] {} ({}) ...".format(phase_name, seat_name, model))
+            api_turn(d, seat_name, endpoint, model, key, args.seat_timeout)
+
+    print("== blind round ({} seats)".format(len(seats)))
+    set_phase(d, "blind")
+    one_round("blind")
+    missing = [s for s in seats if not seat_has_posted(d, s, "claim")]
+    if missing:
+        print("  warning: no claim from: {}".format(", ".join(missing)),
+              file=sys.stderr)
+
+    print("== debate ({} round{})".format(args.rounds, "s" if args.rounds > 1 else ""))
+    set_phase(d, "debate")
+    for _ in range(args.rounds):
+        one_round("debate")
+
+    print("== synthesis")
+    set_phase(d, "closed")
+    synth = args.synthesis or (agents[0][0] if agents else apis[0][0])
+    agent_map = dict(agents)
+    if synth in agent_map:
+        run_agent_turn(synth, agent_map[synth],
+                       AGENT_PROMPTS["synthesis"].format(seat=synth, cli=cli),
+                       args.seat_timeout, cli)
+    else:
+        api_map = {n: (e, m) for n, e, m in apis}
+        if synth not in api_map:
+            return die("unknown synthesis seat: " + synth)
+        endpoint, model = api_map[synth]
+        prompt = (build_brief(d, synth, "debate")
+                  + "\nIGNORE the output format above. You are the designated "
+                    "synthesizer. Reply with MARKDOWN ONLY: '## Consensus' "
+                    "(what survived cross-examination) and '## Disagreements' "
+                    "(table: claim | seats for | seats against | evidence).")
+        try:
+            content = http_chat(endpoint, model, key, prompt,
+                                timeout=args.seat_timeout)
+            (d / "synthesis.md").write_text(content, encoding="utf-8")
+        except (urllib.error.URLError, urllib.error.HTTPError, OSError,
+                KeyError, json.JSONDecodeError) as e:
+            print("  synthesis API call failed: {}".format(e), file=sys.stderr)
+
+    print("\n== bus transcript")
+    msgs, _ = load_msgs(d)
+    for m in msgs:
+        print(fmt(m))
+    syn = d / "synthesis.md"
+    if syn.is_file():
+        print("\n== synthesis ({})\n".format(syn))
+        print(syn.read_text(encoding="utf-8"))
+    else:
+        print("\n(no synthesis.md was produced — check warnings above)")
+    return 0
+
+
+def set_phase(d, phase, who="moderator"):
+    task = d / "task.md"
+    text = task.read_text(encoding="utf-8") if task.is_file() else TASK_TEMPLATE.format(task="")
+    new, n = re.subn(r"^status:\s*\S+", "status: " + phase, text, count=1, flags=re.M)
+    if n == 0:
+        new = "status: " + phase + "\n" + text
+    task.write_text(new, encoding="utf-8")
+    append_msg(d, {"ts": now_iso(), "from": who, "type": "info",
+                   "msg": "phase -> " + phase})
+
+
 def cmd_watch(args):
     d = need_dir()
     if d is None:
@@ -686,6 +879,28 @@ def main(argv=None):
     sp.add_argument("--api-key", help="bearer token (default: CX_API_KEY/OPENAI_API_KEY)")
     sp.add_argument("--timeout", type=float, default=180.0)
     sp.set_defaults(fn=cmd_seat)
+
+    sp = sub.add_parser("run", help="one command, whole panel: blind -> "
+                                    "debate -> synthesis")
+    sp.add_argument("--task", help="task description")
+    sp.add_argument("--exhibit", action="append",
+                    help="file to copy into _Msg/exhibits/ (repeatable)")
+    sp.add_argument("--agent", action="append", metavar="NAME=CMD",
+                    help="headless CLI seat, e.g. 'sonnet=claude -p {prompt}' "
+                         "or 'gpt=codex exec {prompt}' (repeatable)")
+    sp.add_argument("--api", action="append", metavar="NAME=ENDPOINT|MODEL",
+                    help="API seat, e.g. 'qwen=http://localhost:11434/v1|qwen2.5:14b'")
+    sp.add_argument("--rounds", type=int, default=1, help="debate rounds (default 1)")
+    sp.add_argument("--synthesis", help="seat that writes synthesis.md "
+                                        "(default: first --agent)")
+    sp.add_argument("--api-key", help="bearer token for --api seats")
+    sp.add_argument("--seat-timeout", type=float, default=900.0,
+                    help="seconds per seat turn (default 900)")
+    sp.add_argument("--cli", default="cxam",
+                    help="how agents should invoke this tool (default cxam)")
+    sp.add_argument("--force", action="store_true",
+                    help="run even if _Msg/bus.jsonl already has messages")
+    sp.set_defaults(fn=cmd_run)
 
     sp = sub.add_parser("brief", help="print a self-contained prompt for a "
                                       "web-chat LLM (clipboard seat)")

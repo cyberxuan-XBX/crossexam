@@ -20,22 +20,24 @@ debate、LLM jury 全是為此而生），但 CLI 使用者只能自己當人肉
 第三個則抓到兩者都漏掉的 11 筆。最終答案比任何單一 session 都好。
 CrossExam 就是把這個工作流機械化。
 
-## 安裝與快速開始
+## 安裝與快速開始 — 一條指令跑完整局
 
 ```bash
 pip install crossexam
 
 cd your-project
-cxam init --task "稽核 auth.py 的 token 過期 bug"
-
-# 每個模型開一個終端，想釘什麼版本就釘什麼版本
-CX_SEAT=sonnet claude
-CX_SEAT=gpt    codex
-CX_SEAT=gemini gemini
+cxam run --task "稽核 auth.py 的 token 過期 bug" \
+  --agent 'sonnet=claude -p {prompt}' \
+  --agent 'gpt=codex exec {prompt}' \
+  --api   'qwen=http://localhost:11434/v1|qwen2.5:14b'
 ```
 
-給每個 CLI 接上對應 adapter（一個 hook 或一段記憶檔，見 [adapters/](adapters/)），
-然後對每個 session 說「繼續」就行。每回合各席位自己讀未讀、動工、寫結論回去。
+就這樣。盲寫 → 互驗 → 收斂全自動，最後印出 synthesis + 分歧表。
+審文件/log/對話就加 `--exhibit 檔案`（可重複）。
+
+想要真互動 session（載你的記憶檔、釘精確模型版本、你隨時介入）？
+用 expert 模式：`cxam init` 後每席開一個終端 `CX_SEAT=名字 <你的CLI>`，
+對每個 session 說「繼續」就行 — 詳見英文版 README「Live mode」。
 
 不接 AI 先看流程：`bash examples/simulated-debate.sh`（5 秒模擬全生命週期）。
 

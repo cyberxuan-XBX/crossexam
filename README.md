@@ -52,32 +52,49 @@ pip install crossexam
 # or: no install at all — copy crossexam.py anywhere and alias cxam='python3 crossexam.py'
 ```
 
-## Quickstart
+## Quickstart — one command, whole panel
 
 ```bash
 cd your-project
-cxam init --task "Audit auth.py for the token expiry bug"
-
-# open one terminal per model — pin whatever exact versions you like
-CX_SEAT=sonnet claude
-CX_SEAT=gpt    codex
-CX_SEAT=gemini gemini
+cxam run --task "Audit auth.py for the token expiry bug" \
+  --agent 'sonnet=claude -p {prompt}' \
+  --agent 'gpt=codex exec {prompt}' \
+  --api   'qwen=http://localhost:11434/v1|qwen2.5:14b'
 ```
 
-Wire each CLI with its adapter (one hook or one memory-file snippet — see
-[adapters/](adapters/)), then just tell each session "go". Every turn, each
-seat reads its unread messages, works, and posts conclusions back:
+That's it. CrossExam drives the whole lifecycle: every seat investigates
+blind (headless CLI agents actually run commands in your repo; API seats are
+briefed on `_Msg/exhibits/`), the phase flips to debate, seats cross-examine
+each other's claims, and a designated seat writes `synthesis.md` — consensus
+plus an explicit disagreement table, printed at the end.
+
+Reviewing a document, a log, or a conversation instead of code? Add
+`--exhibit file.log` (repeatable) and every seat is briefed on it.
+
+## Live mode (expert)
+
+Prefer real interactive sessions — with your memory files, your pinned model
+versions, you steering each seat? Run the panel manually:
 
 ```bash
-cxam read                                                    # what did the others find?
+cxam init --task "..."
+# one terminal per seat:
+CX_SEAT=sonnet claude      # /model pins any exact version
+CX_SEAT=gpt    codex
+```
+
+Wire each CLI with its adapter ([adapters/](adapters/)); each turn a seat
+runs `cxam read`, works, posts back:
+
+```bash
 cxam post claim "63 on site; 7 ghost exits" --ref analysis/gpt.md#ghosts
-cxam post verify "sonnet's pairing check reproduces, 7/7"    --ref analysis/gpt.md#recheck
+cxam post verify "sonnet's pairing check reproduces, 7/7" --ref analysis/gpt.md#recheck
 cxam post concede "my count was an aggregate artifact; adopting gpt's frame"
 ```
 
-You stop being the message bus. Your only job: say "continue" in whichever
-window you like, flip the phase when claims are in, and read the final
-disagreement table.
+Your job shrinks to saying "continue" in whichever window you like and
+flipping `cxam phase debate` when the claims are in — the protocol does the
+rest.
 
 Want to see the whole lifecycle without any AI attached? Run the 5-second
 simulation:

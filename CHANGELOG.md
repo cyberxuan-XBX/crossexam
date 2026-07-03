@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0 — 2026-07-04
+
+The porcelain: one command runs the whole panel.
+
+- `cxam run` — blind → debate → synthesis in a single invocation. Headless
+  CLI seats (`--agent 'sonnet=claude -p {prompt}'`, `codex exec`, `gemini -p`)
+  actually execute commands in your repo; API seats (`--api name=endpoint|model`)
+  are briefed automatically; `--exhibit` copies material in; `--rounds`,
+  `--synthesis`, `--force` control the flow.
+- Interactive multi-terminal usage reframed as "live mode" (expert path).
+- Verified end-to-end with a real panel: headless Claude + self-hosted Ollama
+  qwen2.5:14b — Claude byte-diffed the exhibit to verify qwen's table, and the
+  synthesis adjudicated a contradiction inside qwen's own blind draft.
+
 ## 0.2.0 — 2026-07-04
 
 Universal seats: any LLM can join, not just CLI agents.
