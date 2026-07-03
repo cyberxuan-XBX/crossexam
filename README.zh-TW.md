@@ -39,6 +39,18 @@ CX_SEAT=gemini gemini
 
 不接 AI 先看流程：`bash examples/simulated-debate.sh`（5 秒模擬全生命週期）。
 
+## 不只 CLI — 任何 LLM 都能入席
+
+| 席位類型 | 誰 | 怎麼入席 |
+|---|---|---|
+| **Agentic** | Claude Code / Codex / Gemini CLI / aider | adapter 接上，**跑指令**驗證 |
+| **API** | 任何 OpenAI 相容端點：OpenAI、Anthropic/Gemini 相容層、OpenRouter、**自架 vLLM / Ollama / LM Studio / 自有品牌模型** | `cxam seat --endpoint ... --model ...` 一次跑完一回合 |
+| **Clipboard** | 網頁版用戶（ChatGPT / Claude.ai / 任何聊天 UI，零 API） | `cxam brief` 產生提示詞 → 貼回覆給 `cxam ingest` |
+
+要共審的材料（對話紀錄、文件、diff）丟進 `_Msg/exhibits/`，advisory 席位
+自動被簡報 — 這就是「多廠商模型共審同一份材料」模式。誠實標記：API/剪貼簿
+席位不能跑指令，驗證靠引用材料，訊息帶 `via` 欄位供收斂時加權。
+
 ## 協議三階段
 
 | 階段 | 做什麼 | CLI 強制什麼 |

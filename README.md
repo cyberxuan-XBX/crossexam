@@ -86,6 +86,35 @@ simulation:
 bash examples/simulated-debate.sh
 ```
 
+## Any LLM can take a seat — not just CLI agents
+
+Three seat classes, mix freely on one panel:
+
+| Class | Who | How |
+|---|---|---|
+| **Agentic** | Claude Code, Codex CLI, Gemini CLI, aider… | hook / memory-file adapter; verifies by **executing commands** |
+| **API** | any OpenAI-compatible endpoint: OpenAI, Anthropic & Gemini compat endpoints, OpenRouter, **self-hosted vLLM / Ollama / LM Studio / your own fine-tune** | `cxam seat` runs one full turn: brief → model → analysis filed → conclusion posted |
+| **Clipboard** | web-chat users: ChatGPT, Claude.ai, any chat UI, zero API access | `cxam brief` prints a self-contained prompt; paste the reply back into `cxam ingest` |
+
+```bash
+# your own local model takes a seat (e.g. Ollama)
+cxam seat --name qwen --endpoint http://localhost:11434/v1 --model qwen2.5:14b
+
+# a web-chat model takes a seat
+cxam brief --name grok | <copy to the web chat>
+<paste its reply> | cxam ingest --name grok
+```
+
+Reviewing a conversation, a document, or a diff instead of a live repo? Drop
+the material into `_Msg/exhibits/` — advisory seats are briefed on it
+automatically. That's the *panel review* mode: N models from N vendors
+blind-review the same exhibits, then cross-examine.
+
+Honesty note: API and clipboard seats can't execute commands, so their
+verification is citation-based rather than execution-based. Their posts carry
+a `via` field (`api` / `clipboard`) so the synthesis can weigh evidence
+accordingly.
+
 ## The protocol
 
 Three phases, enforced by the CLI, flipped by you (`cxam phase debate`):
@@ -124,9 +153,10 @@ needed**. Divergence is signal, not noise.
 
 - Not a process manager — it doesn't spawn or babysit your CLIs
   (tmux/claude-squad-style tools do that; they compose fine with this).
-- Not an API orchestrator — nothing here calls a model API. Councils that
-  query N APIs in parallel answer one prompt; CrossExam coordinates *agentic
-  sessions* that investigate with tools over hours.
+- Not an API orchestrator at heart — the protocol itself never requires an
+  API key; `cxam seat` is an optional bridge for models that don't have a CLI.
+  Councils that query N APIs answer one prompt; CrossExam coordinates
+  *sessions* that investigate — and lets API models sit alongside them.
 - Not a hard security boundary — the blind phase is enforced by the sanctioned
   interface (`cxam read`) and adapter instructions, but a misbehaving agent
   could still `cat` the bus. It's a discipline, mechanically assisted.

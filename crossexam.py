@@ -12,7 +12,7 @@ no API keys, no vendor lock-in. If your agent can run shell commands, it
 can sit at the table.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 import argparse
 import datetime
@@ -21,6 +21,8 @@ import os
 import re
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 MSG_DIR = "_Msg"
@@ -43,6 +45,7 @@ of a human copy-pasting between windows.
     ├── bus.jsonl          conclusion bus, append-only JSON lines
     ├── .seen/<seat>       per-seat read cursor (integer = lines already read)
     ├── analysis/<seat>.md long-form analysis, raw data, code
+    ├── exhibits/          material under review (transcripts, docs, diffs)
     └── synthesis.md       final synthesis + disagreement table (closed phase)
 
 ## Seats
@@ -82,6 +85,20 @@ The bus carries CONCLUSIONS ONLY. Long reasoning, raw data, and code go to
     cxam post verify "claim X holds, 7/7 rows reproduced" --ref analysis/me.md#x
     # cursor advances automatically on read
 
+## Seat classes
+
+- agentic   a live CLI session (Claude Code, Codex, Gemini CLI, aider, ...).
+            Can execute commands: its verify/challenge carries executed evidence.
+- advisory  any other LLM: joined via `cxam seat` (any OpenAI-compatible API,
+            including self-hosted vLLM / Ollama / LM Studio / your own brand)
+            or via `cxam brief` + `cxam ingest` (copy-paste with a web chat).
+            Reviews `exhibits/` and others' analyses; its verification is
+            citation-based, not execution-based. Advisory posts carry a
+            "via" field ("api" / "clipboard") for transparency.
+
+Put the material under review (conversation transcripts, documents, diffs)
+into `_Msg/exhibits/` — advisory seats are briefed on it automatically.
+
 ## Iron rules
 
 - Append-only. Never rewrite or delete another seat's messages.
@@ -89,6 +106,37 @@ The bus carries CONCLUSIONS ONLY. Long reasoning, raw data, and code go to
 - Evidence or it didn't happen: verify/challenge must carry a ref.
 - The value of the synthesis is the disagreement table, not the consensus.
 """
+
+SEAT_PROMPT = """\
+You are seat "{seat}" on a CrossExam review panel. Several independent AI
+reviewers examine the same task and exchange conclusions on a shared bus.
+Current phase: {phase}.
+
+{phase_instructions}
+
+# TASK
+{task}
+{exhibits}{others}{own}
+# OUTPUT FORMAT
+Reply with EXACTLY one JSON object and nothing else (no markdown fences):
+{{"analysis": "<your full reasoning in markdown; be concrete, cite the material>",
+  "type": "<one of: {allowed}>",
+  "msg": "<ONE-line conclusion with the key numbers/facts, max 200 words>"}}
+"""
+
+PHASE_INSTRUCTIONS = {
+    "blind": (
+        "BLIND PHASE. You have deliberately NOT been shown other reviewers' "
+        "work, to keep your analysis independent. Analyze the task and "
+        "material yourself and state your own conclusion as a 'claim'."),
+    "debate": (
+        "DEBATE PHASE. Other seats' conclusions and analyses are included "
+        "below. Cross-examine them: pick their CONCRETE, CHECKABLE statements "
+        "and test them against the material, quoting evidence. Reply 'verify' "
+        "if a claim holds, 'challenge' with cited evidence if it does not, or "
+        "'concede' if your own earlier claim is beaten (say whose framework "
+        "you adopt). No praising and no doubting without cited evidence."),
+}
 
 TASK_TEMPLATE = """\
 # Task
@@ -194,9 +242,10 @@ def blind_visible(m, seat):
 
 def fmt(m):
     ref = " [{}]".format(m["ref"]) if m.get("ref") else ""
-    return "#{:<3} {}  {:<10} {:<9}{} {}".format(
+    via = " (via {})".format(m["via"]) if m.get("via") else ""
+    return "#{:<3} {}  {:<10} {:<9}{} {}{}".format(
         m.get("_line", "?"), m.get("ts", "?")[:19],
-        m.get("from", "?"), m.get("type", "?"), ref, m.get("msg", ""))
+        m.get("from", "?"), m.get("type", "?"), ref, m.get("msg", ""), via)
 
 
 def die(msg, code=1):
@@ -212,6 +261,124 @@ def need_dir():
     return d
 
 
+# ------------------------------------------------- advisory-seat helpers
+
+def read_capped(path, cap=12000):
+    try:
+        t = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    if len(t) > cap:
+        t = t[:cap] + "\n[... truncated at {} chars ...]".format(cap)
+    return t
+
+
+def build_brief(d, seat, phase):
+    """Self-contained prompt for an advisory seat (API or clipboard)."""
+    task = read_capped(d / "task.md", 8000)
+    ex_dir = d / "exhibits"
+    exhibits = ""
+    if ex_dir.is_dir():
+        parts = []
+        for f in sorted(ex_dir.iterdir()):
+            if f.is_file() and not f.name.startswith("."):
+                parts.append("## exhibit: {}\n{}".format(f.name, read_capped(f)))
+        if parts:
+            exhibits = "\n# MATERIAL UNDER REVIEW\n" + "\n\n".join(parts) + "\n"
+    others = ""
+    if phase == "debate":
+        msgs, _ = load_msgs(d)
+        bus = "\n".join(fmt(m) for m in msgs)
+        an_parts = []
+        an_dir = d / "analysis"
+        if an_dir.is_dir():
+            for f in sorted(an_dir.glob("*.md")):
+                if f.stem != seat:
+                    an_parts.append("## analysis by seat '{}':\n{}"
+                                    .format(f.stem, read_capped(f, 8000)))
+        others = ("\n# THE BUS SO FAR\n" + bus + "\n"
+                  + ("\n# OTHER SEATS' ANALYSES\n" + "\n\n".join(an_parts) + "\n"
+                     if an_parts else ""))
+    own = ""
+    own_file = d / "analysis" / (seat + ".md")
+    if own_file.is_file():
+        own = ("\n# YOUR OWN EARLIER ANALYSIS\n"
+               + read_capped(own_file, 8000) + "\n")
+    allowed = "claim" if phase == "blind" else "claim, verify, challenge, concede"
+    return SEAT_PROMPT.format(
+        seat=seat, phase=phase,
+        phase_instructions=PHASE_INSTRUCTIONS.get(phase, PHASE_INSTRUCTIONS["debate"]),
+        task=task, exhibits=exhibits, others=others, own=own, allowed=allowed)
+
+
+def parse_reply(text):
+    """Extract the reply JSON object from model output (tolerates fences and
+    surrounding prose). Returns dict or None."""
+    text = text.strip()
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
+    candidates = [fenced.group(1)] if fenced else []
+    candidates.append(text)
+    start = text.find("{")
+    if start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidates.append(text[start:i + 1])
+                    break
+    for c in candidates:
+        try:
+            obj = json.loads(c)
+            if isinstance(obj, dict) and obj.get("msg"):
+                return obj
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return None
+
+
+def http_chat(endpoint, model, key, prompt, timeout=180):
+    """Minimal OpenAI-compatible /chat/completions call, stdlib only."""
+    url = endpoint.rstrip("/") + "/chat/completions"
+    body = json.dumps({"model": model,
+                       "messages": [{"role": "user", "content": prompt}]}).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if key:
+        req.add_header("Authorization", "Bearer " + key)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.loads(resp.read().decode("utf-8", errors="replace"))
+    return data["choices"][0]["message"]["content"]
+
+
+def record_advisory(d, seat, reply, via):
+    """Write analysis file + post the one-line conclusion. Returns exit code."""
+    phase = read_phase(d)
+    if phase == "closed":
+        return die("phase is 'closed': nothing for a seat to post.")
+    mtype = str(reply.get("type", "claim")).strip().lower()
+    if mtype not in TYPES or (phase == "blind" and mtype != "claim"):
+        mtype = "claim" if phase == "blind" else "info"
+    analysis = str(reply.get("analysis", "")).strip()
+    ref = None
+    if analysis:
+        af = d / "analysis" / (seat + ".md")
+        af.parent.mkdir(exist_ok=True)
+        with open(af, "a", encoding="utf-8") as f:
+            f.write("\n## {} ({} · {})\n\n{}\n".format(now_iso(), via, phase, analysis))
+        ref = "analysis/{}.md".format(seat)
+    msg = str(reply.get("msg", "")).strip()[:1200]
+    rec = {"ts": now_iso(), "from": seat, "type": mtype, "msg": msg, "via": via}
+    if ref:
+        rec["ref"] = ref
+    append_msg(d, rec)
+    set_cursor(d, seat, bus_line_count(d))
+    print("posted #{} as {} ({}, via {})".format(bus_line_count(d), seat, mtype, via))
+    return 0
+
+
 # ---------------------------------------------------------------- commands
 
 def cmd_init(args):
@@ -219,6 +386,7 @@ def cmd_init(args):
     existed = d.is_dir()
     (d / ".seen").mkdir(parents=True, exist_ok=True)
     (d / "analysis").mkdir(exist_ok=True)
+    (d / "exhibits").mkdir(exist_ok=True)
     if not (d / "PROTOCOL.md").is_file():
         (d / "PROTOCOL.md").write_text(PROTOCOL_TEXT, encoding="utf-8")
     if not (d / "task.md").is_file():
@@ -388,6 +556,73 @@ def cmd_hook(args):
     return 0
 
 
+def cmd_brief(args):
+    """Print a self-contained prompt for a clipboard seat (web-chat LLM)."""
+    d = need_dir()
+    if d is None:
+        return 2
+    seat = args.name or get_seat()
+    if not seat:
+        return die("no seat. Pass --name or set CX_SEAT.")
+    phase = read_phase(d)
+    if phase == "closed":
+        return die("phase is 'closed': nothing to brief.")
+    print(build_brief(d, seat, phase))
+    return 0
+
+
+def cmd_ingest(args):
+    """Read a pasted model reply from stdin, file the analysis, post the msg."""
+    d = need_dir()
+    if d is None:
+        return 2
+    seat = args.name or get_seat()
+    if not seat:
+        return die("no seat. Pass --name or set CX_SEAT.")
+    text = sys.stdin.read()
+    reply = parse_reply(text)
+    if reply is None:
+        return die("no JSON object with a 'msg' field found in the pasted "
+                   "reply. Ask the model to answer in the required format, "
+                   "or post manually with `cxam post`.")
+    return record_advisory(d, seat, reply, "clipboard")
+
+
+def cmd_seat(args):
+    """Run one advisory-seat turn against any OpenAI-compatible endpoint."""
+    d = need_dir()
+    if d is None:
+        return 2
+    seat = args.name or get_seat()
+    if not seat:
+        return die("no seat. Pass --name or set CX_SEAT.")
+    endpoint = args.endpoint or os.environ.get("CX_ENDPOINT")
+    model = args.model or os.environ.get("CX_MODEL")
+    if not endpoint or not model:
+        return die("need --endpoint and --model (or CX_ENDPOINT / CX_MODEL). "
+                   "Works with any OpenAI-compatible API: OpenAI, Anthropic "
+                   "and Gemini compatibility endpoints, OpenRouter, or "
+                   "self-hosted vLLM / Ollama / LM Studio.")
+    key = args.api_key or os.environ.get("CX_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    phase = read_phase(d)
+    if phase == "closed":
+        return die("phase is 'closed': nothing for a seat to do.")
+    prompt = build_brief(d, seat, phase)
+    print("briefing {} chars -> {} @ {}".format(len(prompt), model, endpoint))
+    try:
+        content = http_chat(endpoint, model, key, prompt, timeout=args.timeout)
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, KeyError,
+            json.JSONDecodeError) as e:
+        return die("API call failed: {}".format(e))
+    reply = parse_reply(content)
+    if reply is None:
+        raw = d / "analysis" / (seat + ".raw.txt")
+        raw.write_text(content, encoding="utf-8")
+        return die("model reply was not parseable JSON; raw saved to {}. "
+                   "Try a stronger model or ingest manually.".format(raw))
+    return record_advisory(d, seat, reply, "api")
+
+
 def cmd_watch(args):
     d = need_dir()
     if d is None:
@@ -442,6 +677,24 @@ def main(argv=None):
 
     sp = sub.add_parser("hook", help="one-line status for prompt-injection hooks")
     sp.set_defaults(fn=cmd_hook)
+
+    sp = sub.add_parser("seat", help="one advisory-seat turn via any "
+                                     "OpenAI-compatible API (incl. self-hosted)")
+    sp.add_argument("--name", help="seat name (default: CX_SEAT)")
+    sp.add_argument("--endpoint", help="base URL, e.g. http://localhost:11434/v1")
+    sp.add_argument("--model", help="model name at the endpoint")
+    sp.add_argument("--api-key", help="bearer token (default: CX_API_KEY/OPENAI_API_KEY)")
+    sp.add_argument("--timeout", type=float, default=180.0)
+    sp.set_defaults(fn=cmd_seat)
+
+    sp = sub.add_parser("brief", help="print a self-contained prompt for a "
+                                      "web-chat LLM (clipboard seat)")
+    sp.add_argument("--name", help="seat name (default: CX_SEAT)")
+    sp.set_defaults(fn=cmd_brief)
+
+    sp = sub.add_parser("ingest", help="paste the web-chat reply back in via stdin")
+    sp.add_argument("--name", help="seat name (default: CX_SEAT)")
+    sp.set_defaults(fn=cmd_ingest)
 
     sp = sub.add_parser("watch", help="live tail of the bus (for humans)")
     sp.add_argument("--interval", type=float, default=2.0)

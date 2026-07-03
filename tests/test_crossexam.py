@@ -227,6 +227,91 @@ def test_malformed_bus_lines_skipped(arena, monkeypatch, capsys):
     assert "malformed" in out.err
 
 
+# ---------------------------------------------------------------- advisory seats
+
+REPLY = '{"analysis": "long reasoning here", "type": "claim", "msg": "42 sheep"}'
+
+
+def test_brief_blind_excludes_others_includes_exhibits(arena, monkeypatch, capsys):
+    (arena / "_Msg" / "exhibits" / "log.txt").write_text("EXHIBIT-CONTENT")
+    (arena / "_Msg" / "analysis" / "rival.md").write_text("RIVAL-SECRET")
+    seat(monkeypatch, "qwen")
+    assert cx.main(["brief"]) == 0
+    out = capsys.readouterr().out
+    assert "count the sheep" in out
+    assert "EXHIBIT-CONTENT" in out
+    assert "RIVAL-SECRET" not in out
+    assert "BLIND PHASE" in out
+
+
+def test_brief_debate_includes_others(arena, monkeypatch, capsys):
+    (arena / "_Msg" / "analysis" / "rival.md").write_text("RIVAL-ARGUMENT")
+    seat(monkeypatch, "mod")
+    cx.main(["phase", "debate"])
+    capsys.readouterr()
+    seat(monkeypatch, "qwen")
+    cx.main(["brief"])
+    out = capsys.readouterr().out
+    assert "RIVAL-ARGUMENT" in out
+    assert "DEBATE PHASE" in out
+
+
+def test_parse_reply_variants():
+    assert cx.parse_reply(REPLY)["msg"] == "42 sheep"
+    assert cx.parse_reply("```json\n" + REPLY + "\n```")["msg"] == "42 sheep"
+    assert cx.parse_reply("Sure! Here you go:\n" + REPLY + "\nHope that helps.")["msg"] == "42 sheep"
+    assert cx.parse_reply("no json at all") is None
+
+
+def test_ingest_posts_and_writes_analysis(arena, monkeypatch, capsys):
+    seat(monkeypatch, "qwen")
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(REPLY))
+    assert cx.main(["ingest"]) == 0
+    rec = json.loads(bus_lines(arena)[-1])
+    assert rec["from"] == "qwen"
+    assert rec["via"] == "clipboard"
+    assert rec["type"] == "claim"
+    assert "long reasoning here" in (arena / "_Msg" / "analysis" / "qwen.md").read_text()
+
+
+def test_ingest_blind_coerces_type_to_claim(arena, monkeypatch, capsys):
+    seat(monkeypatch, "qwen")
+    bad = '{"analysis": "x", "type": "challenge", "msg": "sneaky"}'
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(bad))
+    assert cx.main(["ingest"]) == 0
+    assert json.loads(bus_lines(arena)[-1])["type"] == "claim"
+
+
+def test_seat_calls_endpoint_and_posts(arena, monkeypatch, capsys):
+    seen_prompt = {}
+
+    def fake_chat(endpoint, model, key, prompt, timeout=180):
+        seen_prompt["p"] = prompt
+        return REPLY
+
+    monkeypatch.setattr(cx, "http_chat", fake_chat)
+    seat(monkeypatch, "qwen")
+    assert cx.main(["seat", "--endpoint", "http://x/v1", "--model", "m"]) == 0
+    rec = json.loads(bus_lines(arena)[-1])
+    assert rec["via"] == "api"
+    assert rec["msg"] == "42 sheep"
+    assert "count the sheep" in seen_prompt["p"]
+
+
+def test_seat_requires_endpoint(arena, monkeypatch, capsys):
+    seat(monkeypatch, "qwen")
+    monkeypatch.delenv("CX_ENDPOINT", raising=False)
+    monkeypatch.delenv("CX_MODEL", raising=False)
+    assert cx.main(["seat"]) == 1
+
+
+def test_seat_unparseable_reply_saves_raw(arena, monkeypatch, capsys):
+    monkeypatch.setattr(cx, "http_chat", lambda *a, **k: "utter prose, no json")
+    seat(monkeypatch, "qwen")
+    assert cx.main(["seat", "--endpoint", "http://x/v1", "--model", "m"]) == 1
+    assert (arena / "_Msg" / "analysis" / "qwen.raw.txt").read_text() == "utter prose, no json"
+
+
 def test_newlines_in_message_stay_one_bus_line(arena, monkeypatch, capsys):
     seat(monkeypatch, "a")
     before = len(bus_lines(arena))
