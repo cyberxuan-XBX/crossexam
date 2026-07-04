@@ -1,5 +1,11 @@
 # Synthesis — CrossExam v0.5.0 audit (crossexam.py)
 
+> **Status:** all six cross-verified findings below were fixed in v0.5.1, each
+> with a regression test (see [CHANGELOG](../CHANGELOG.md)). Item 7's TOCTOU
+> window is closed by the same fix — `post_message` now re-reads the phase
+> under `phase_lock`. The text below preserves the audit exactly as it ran
+> against v0.5.0.
+
 Panel: sonnet, gpt, qwen. Blind phase: 3 claims sealed, then revealed on
 `phase -> debate`. qwen's blind claim ("no bugs, protocol-compliant") was
 challenged by both other seats and conceded in full at close
