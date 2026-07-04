@@ -347,17 +347,40 @@ def set_cursor(d, seat, n):
     (seen / seat).write_text(str(n) + "\n", encoding="utf-8")
 
 
-def append_line(path, record):
-    """Single-line append. On POSIX, one write under 4KB is atomic; we also
-    take an advisory lock where available for belt-and-braces."""
-    line = json.dumps(record, ensure_ascii=False)  # escapes newlines: 1 msg = 1 line
-    with open(path, "a", encoding="utf-8") as f:
+class _DirLock:
+    """Cross-platform exclusive lock via atomic mkdir — works on POSIX and
+    Windows with no platform-specific imports. Spins with backoff; the lock
+    dir is per-target so writes to different files never contend."""
+    def __init__(self, target, tries=500, wait=0.005):
+        self.lock = Path(str(target) + ".lock")
+        self.tries, self.wait = tries, wait
+
+    def __enter__(self):
+        for _ in range(self.tries):
+            try:
+                self.lock.mkdir()
+                return self
+            except FileExistsError:
+                time.sleep(self.wait)
+        return self  # give up waiting rather than block forever
+
+    def __exit__(self, *exc):
         try:
-            import fcntl
-            fcntl.flock(f, fcntl.LOCK_EX)
-        except (ImportError, OSError):
-            pass  # Windows or exotic FS: fall back to atomic-enough append
-        f.write(line + "\n")
+            self.lock.rmdir()
+        except OSError:
+            pass
+
+
+def append_line(path, record):
+    """Atomic single-line append, portable across POSIX and Windows.
+
+    A bare O_APPEND write under PIPE_BUF is atomic on POSIX but NOT on
+    Windows, where concurrent writers drop lines (caught by our own stress
+    test on CI). A mkdir-based lock serializes writers on every platform."""
+    line = json.dumps(record, ensure_ascii=False)  # escapes newlines: 1 msg = 1 line
+    with _DirLock(path):
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
 
 
 def append_msg(d, record):

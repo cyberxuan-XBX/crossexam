@@ -483,9 +483,12 @@ def test_run_agent_turn_appends_prompt_and_env(arena, monkeypatch):
         return R()
 
     monkeypatch.setattr(cx.subprocess, "run", fake_sub)
+    # force the POSIX path so the assertion is platform-independent
+    monkeypatch.setattr(cx.os, "name", "posix")
     assert cx.run_agent_turn("s1", "claude -p {prompt}", "do the thing", 5)
-    assert "do the thing" in captured["cmd"]
-    assert "{prompt}" not in captured["cmd"]
+    rendered = " ".join(captured["cmd"]) if isinstance(captured["cmd"], list) else captured["cmd"]
+    assert "do the thing" in rendered
+    assert "{prompt}" not in rendered
     assert captured["seat"] == "s1"
 
 

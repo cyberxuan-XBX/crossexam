@@ -15,7 +15,10 @@ Hardening release — closing the gaps from our own audit.
   instructions to follow. New SECURITY.md documents the full threat model
   (injection surface, bus integrity, data egress, sandboxing).
 - `--max-chars` on `cxam seat` / `cxam brief` for larger exhibits.
-- Stress tests: 8-thread concurrent append integrity, 10-seat panel.
+- Stress tests: 8-thread concurrent append integrity, 10-seat panel. The
+  concurrency test caught a **real Windows data-loss bug** on CI (bare
+  `O_APPEND` isn't atomic there, dropping ~5/400 lines under contention);
+  fixed with a portable mkdir-based lock around every bus/envelope write.
 - Roadmap section (distributed seats, confidence-weighted synthesis, MCP).
 
 ## 0.4.0 — 2026-07-04
