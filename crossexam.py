@@ -243,7 +243,7 @@ def bus_line_count(d):
 def get_cursor(d, seat):
     f = d / ".seen" / seat
     try:
-        return int(re.sub(r"[^0-9]", "", f.read_text()) or 0)
+        return int(re.sub(r"[^0-9]", "", f.read_text(encoding="utf-8")) or 0)
     except (OSError, ValueError):
         return 0
 

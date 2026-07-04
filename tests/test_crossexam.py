@@ -26,7 +26,7 @@ def seat(monkeypatch, name):
 
 
 def bus_lines(root):
-    return (root / "_Msg" / "bus.jsonl").read_text().splitlines()
+    return (root / "_Msg" / "bus.jsonl").read_text(encoding="utf-8").splitlines()
 
 
 # ---------------------------------------------------------------- init
@@ -38,14 +38,14 @@ def test_init_creates_structure(arena):
     assert (d / "bus.jsonl").is_file()
     assert (d / ".seen").is_dir()
     assert (d / "analysis").is_dir()
-    assert "count the sheep" in (d / "task.md").read_text()
+    assert "count the sheep" in (d / "task.md").read_text(encoding="utf-8")
     assert cx.read_phase(d) == "blind"
 
 
 def test_init_idempotent(arena, capsys):
     (arena / "_Msg" / "task.md").write_text("# Task\nstatus: debate\n\ncustom")
     assert cx.main(["init"]) == 0
-    assert "custom" in (arena / "_Msg" / "task.md").read_text()  # not clobbered
+    assert "custom" in (arena / "_Msg" / "task.md").read_text(encoding="utf-8")  # not clobbered
 
 
 def test_find_msg_dir_walks_up(arena, monkeypatch):
@@ -280,7 +280,7 @@ def test_ingest_posts_and_writes_analysis(arena, monkeypatch, capsys):
     assert rec["from"] == "qwen"
     assert rec["via"] == "clipboard"
     assert rec["type"] == "claim"
-    assert "long reasoning here" in (arena / "_Msg" / "analysis" / "qwen.md").read_text()
+    assert "long reasoning here" in (arena / "_Msg" / "analysis" / "qwen.md").read_text(encoding="utf-8")
 
 
 def test_ingest_blind_coerces_type_to_claim(arena, monkeypatch, capsys):
@@ -318,7 +318,7 @@ def test_seat_unparseable_reply_saves_raw(arena, monkeypatch, capsys):
     monkeypatch.setattr(cx, "http_chat", lambda *a, **k: "utter prose, no json")
     seat(monkeypatch, "qwen")
     assert cx.main(["seat", "--endpoint", "http://x/v1", "--model", "m"]) == 1
-    assert (arena / "_Msg" / "analysis" / "qwen.raw.txt").read_text() == "utter prose, no json"
+    assert (arena / "_Msg" / "analysis" / "qwen.raw.txt").read_text(encoding="utf-8") == "utter prose, no json"
 
 
 # ---------------------------------------------------------------- cxam run
@@ -378,7 +378,7 @@ def test_run_copies_exhibits(arena, monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(cx, "run_agent_turn", fake_agent_runner({}))
     assert cx.main(["run", "--force", "--exhibit", str(src),
                     "--agent", "s=claude -p {prompt}"]) == 0
-    assert (arena / "_Msg" / "exhibits" / "material.txt").read_text() == "EVIDENCE"
+    assert (arena / "_Msg" / "exhibits" / "material.txt").read_text(encoding="utf-8") == "EVIDENCE"
 
 
 def test_run_warns_on_missing_claim(arena, monkeypatch, capsys):
