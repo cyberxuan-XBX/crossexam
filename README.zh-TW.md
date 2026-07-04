@@ -1,11 +1,11 @@
-[English](README.md) | 繁體中文
+[English](https://github.com/cyberxuan-XBX/crossexam/blob/main/README.md) | 繁體中文
 
 # CrossExam 交互詰問
 
 [![CI](https://github.com/cyberxuan-XBX/crossexam/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberxuan-XBX/crossexam/actions)
 [![PyPI](https://img.shields.io/pypi/v/crossexam)](https://pypi.org/project/crossexam/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/crossexam/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/cyberxuan-XBX/crossexam/blob/main/LICENSE)
 
 **三個 AI 稽核同一份門禁紀錄，分別回報場內有 56、61、63 台車。
 真相是它們互相詰問之後才出現的。**
@@ -101,7 +101,7 @@ API 席自動被簡報 `_Msg/exhibits/` 的材料）→ 切入辯論互相詰問
 `synthesis.md`：共識 + 明列的分歧表，直接印在終端。
 
 審 log、文件、對話而不是程式碼？加 `--exhibit 檔案`（可重複）。
-在 Claude Code 裡面用？有 [`/crossexam` 斜線指令](adapters/claude-code-skill.md)。
+在 Claude Code 裡面用？有 [`/crossexam` 斜線指令](https://github.com/cyberxuan-XBX/crossexam/blob/main/adapters/claude-code-skill.md)。
 
 ### 跨廠商與自訂面板
 
@@ -127,7 +127,7 @@ CX_SEAT=sonnet claude      # /model 可釘任何精確版本
 CX_SEAT=gpt    codex
 ```
 
-各 CLI 接上對應 adapter（[adapters/](adapters/)）；每回合席位跑
+各 CLI 接上對應 adapter（[adapters/](https://github.com/cyberxuan-XBX/crossexam/tree/main/adapters)）；每回合席位跑
 `cxam read`、動工、寫回：
 
 ```bash
@@ -198,7 +198,7 @@ Subagent 是一顆腦扇出 — 同廠商、通常無記憶、釘不了版本，
 **壞掉的 agent 能在盲寫期偷看嗎？**
 偷不到匯流排：盲寫期的 claim 在彌封信封裡，辯論開啟前匯流排上根本沒有。
 `analysis/*.md` 仍是普通檔案 — adapter 明令禁讀，但那部分是紀律不是邊界。
-完整威脅模型見 [SECURITY.md](SECURITY.md)。
+完整威脅模型見 [SECURITY.md](https://github.com/cyberxuan-XBX/crossexam/blob/main/SECURITY.md)。
 
 **它會幫我管理 CLI 程序嗎？**
 `cxam run` 會開無頭回合；除此之外它不是程序管理器 — tmux / claude-squad
@@ -208,7 +208,7 @@ Subagent 是一顆腦扇出 — 同廠商、通常無記憶、釘不了版本，
 ## 相關專案
 
 2026-07-04 掃了 40+ 個鄰居 — 含星數的完整表在
-[docs/related-work.md](docs/related-work.md)。兩個軸看懂全地圖：
+[docs/related-work.md](https://github.com/cyberxuan-XBX/crossexam/blob/main/docs/related-work.md)。兩個軸看懂全地圖：
 **誰驗證**（沒人／主模型／獨立同儕）×**怎麼驗**（嘴上辯論與排名／執行指令）：
 
 | | 嘴上辯論與排名 | 執行指令 |

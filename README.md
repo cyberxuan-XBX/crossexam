@@ -1,11 +1,11 @@
-English | [繁體中文](README.zh-TW.md)
+English | [繁體中文](https://github.com/cyberxuan-XBX/crossexam/blob/main/README.zh-TW.md)
 
 # CrossExam
 
 [![CI](https://github.com/cyberxuan-XBX/crossexam/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberxuan-XBX/crossexam/actions)
 [![PyPI](https://img.shields.io/pypi/v/crossexam)](https://pypi.org/project/crossexam/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://pypi.org/project/crossexam/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](https://github.com/cyberxuan-XBX/crossexam/blob/main/LICENSE)
 
 **Three AIs audited the same access log. They reported 56, 61, and 63 vehicles
 on site. The truth only came out when they cross-examined each other.**
@@ -116,7 +116,7 @@ disagreement table, printed at the end.
 
 Reviewing a log, document, or conversation instead of code? Add
 `--exhibit file.log` (repeatable). Inside Claude Code, there's a
-[`/crossexam` slash command](adapters/claude-code-skill.md).
+[`/crossexam` slash command](https://github.com/cyberxuan-XBX/crossexam/blob/main/adapters/claude-code-skill.md).
 
 ### Cross-vendor and custom panels
 
@@ -144,7 +144,7 @@ CX_SEAT=sonnet claude      # /model pins any exact version
 CX_SEAT=gpt    codex
 ```
 
-Wire each CLI with its adapter ([adapters/](adapters/)); each turn a seat
+Wire each CLI with its adapter ([adapters/](https://github.com/cyberxuan-XBX/crossexam/tree/main/adapters)); each turn a seat
 runs `cxam read`, works, posts back:
 
 ```bash
@@ -227,7 +227,7 @@ clipboard seats have no such requirement).
 Not at the bus: blind-phase claims live in sealed envelopes and simply aren't
 there until debate opens. `analysis/*.md` files remain plain files though —
 adapters instruct against reading them early, but that part is discipline,
-not a boundary. Full threat model in [SECURITY.md](SECURITY.md).
+not a boundary. Full threat model in [SECURITY.md](https://github.com/cyberxuan-XBX/crossexam/blob/main/SECURITY.md).
 
 **Does it spawn/manage my CLIs?**
 `cxam run` spawns headless turns; beyond that it's not a process manager —
@@ -238,7 +238,7 @@ for models without a CLI.
 ## Related work
 
 We surveyed 40+ neighbors on 2026-07-04 — full table with verified stars in
-[docs/related-work.md](docs/related-work.md). Two axes matter: **who
+[docs/related-work.md](https://github.com/cyberxuan-XBX/crossexam/blob/main/docs/related-work.md). Two axes matter: **who
 verifies** (nobody / the lead model / independent peers) and **how**
 (rhetoric & ranking / executed commands):
 

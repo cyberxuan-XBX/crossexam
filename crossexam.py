@@ -12,7 +12,7 @@ no API keys, no vendor lock-in. If your agent can run shell commands, it
 can sit at the table.
 """
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 import argparse
 import datetime

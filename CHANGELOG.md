@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.5.2 — 2026-07-04
+- docs: README 內部連結改絕對 GitHub URL — 相對連結在 PyPI 專案頁 404（PyPI 不 host repo 其他檔案）
+
 ## 0.5.1 — 2026-07-04
 
 Dogfood release. We ran CrossExam on its own source (Claude + Codex + a local
