@@ -366,25 +366,60 @@ def set_cursor(d, seat, n):
 
 
 class _DirLock:
-    """Cross-platform exclusive lock via atomic mkdir — works on POSIX and
-    Windows with no platform-specific imports. Spins with backoff; the lock
-    dir is per-target so writes to different files never contend."""
-    def __init__(self, target, tries=500, wait=0.005):
-        self.lock = Path(str(target) + ".lock")
-        self.tries, self.wait = tries, wait
+    """Cross-platform exclusive lock on a sidecar `<target>.lock` file, held
+    open for the critical section. Uses `fcntl` on POSIX and `msvcrt` on
+    Windows — both stdlib, so zero third-party dependencies. A blocking OS
+    lock is reliable under heavy contention where a mkdir spin-lock is not
+    (Windows mkdir/rmdir raise PermissionError under load and lose writers)."""
+    def __init__(self, target, timeout=30.0):
+        self.path = Path(str(target) + ".lock")
+        self.timeout = timeout
+        self.fh = None
 
     def __enter__(self):
-        for _ in range(self.tries):
-            try:
-                self.lock.mkdir()
-                return self
-            except FileExistsError:
-                time.sleep(self.wait)
-        return self  # give up waiting rather than block forever
+        try:
+            self.fh = open(self.path, "a+")
+        except OSError:
+            return self  # can't create lock file; proceed unlocked
+        try:
+            import fcntl
+            fcntl.flock(self.fh, fcntl.LOCK_EX)  # blocks until acquired
+            return self
+        except ImportError:
+            pass
+        try:
+            import msvcrt
+            waited = 0.0
+            while True:
+                try:
+                    self.fh.seek(0)
+                    msvcrt.locking(self.fh.fileno(), msvcrt.LK_LOCK, 1)
+                    return self
+                except OSError:
+                    time.sleep(0.02)
+                    waited += 0.02
+                    if waited >= self.timeout:
+                        return self  # give up waiting rather than deadlock
+        except ImportError:
+            return self
 
     def __exit__(self, *exc):
+        if self.fh is None:
+            return
         try:
-            self.lock.rmdir()
+            import fcntl
+            fcntl.flock(self.fh, fcntl.LOCK_UN)
+        except ImportError:
+            try:
+                import msvcrt
+                self.fh.seek(0)
+                msvcrt.locking(self.fh.fileno(), msvcrt.LK_UNLCK, 1)
+            except (ImportError, OSError):
+                pass
+        except OSError:
+            pass
+        try:
+            self.fh.close()
         except OSError:
             pass
 
