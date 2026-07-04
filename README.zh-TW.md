@@ -1,5 +1,7 @@
 # CrossExam 交互詰問
 
+> 第一次用？看 [docs/getting-started.zh-TW.md](docs/getting-started.zh-TW.md)（10 分鐘入門，含純網頁帳號玩法）。
+
 **同一個問題。三個 AI。三個不同答案。你信哪個？**
 
 CrossExam 是一個檔案級協議 + 極小 CLI，讓多個 AI 編程代理 — **Claude Code、
