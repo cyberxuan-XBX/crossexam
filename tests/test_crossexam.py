@@ -79,6 +79,7 @@ def test_post_as_flag_for_humans(arena, monkeypatch, capsys):
 
 def test_post_and_bus_format(arena, monkeypatch, capsys):
     seat(monkeypatch, "sonnet")
+    cx.main(["phase", "debate"])
     assert cx.main(["post", "claim", "63 sheep, not 56", "--ref",
                     "analysis/sonnet.md#count"]) == 0
     rec = json.loads(bus_lines(arena)[-1])
@@ -135,9 +136,9 @@ def test_peek_does_not_advance(arena, monkeypatch, capsys):
 
 
 def test_blind_read_withholds_others(arena, monkeypatch, capsys):
-    seat(monkeypatch, "a")
-    cx.main(["post", "claim", "secret of a"])
-    capsys.readouterr()
+    # a rogue writer bypasses sealing and appends straight to the bus
+    cx.append_msg(arena / "_Msg", {"ts": "t", "from": "a", "type": "claim",
+                                   "msg": "secret of a"})
     seat(monkeypatch, "b")
     assert cx.main(["read"]) == 0
     out = capsys.readouterr().out
@@ -146,9 +147,8 @@ def test_blind_read_withholds_others(arena, monkeypatch, capsys):
 
 
 def test_blind_cursor_frozen_then_redelivered(arena, monkeypatch, capsys):
-    seat(monkeypatch, "a")
-    cx.main(["post", "claim", "hidden gem"])
-    capsys.readouterr()
+    cx.append_msg(arena / "_Msg", {"ts": "t", "from": "a", "type": "claim",
+                                   "msg": "hidden gem"})
     seat(monkeypatch, "b")
     cx.main(["read"])  # withheld, cursor frozen
     capsys.readouterr()
@@ -162,6 +162,7 @@ def test_blind_cursor_frozen_then_redelivered(arena, monkeypatch, capsys):
 
 def test_unseated_read_is_moderator_view(arena, monkeypatch, capsys):
     seat(monkeypatch, "a")
+    cx.main(["phase", "debate"])
     cx.main(["post", "claim", "visible to humans"])
     capsys.readouterr()
     for var in cx.SEAT_ENV_VARS:
@@ -191,13 +192,13 @@ def test_status_counts(arena, monkeypatch, capsys):
     assert cx.main(["status"]) == 0
     out = capsys.readouterr().out
     assert "phase: blind" in out
-    assert "a" in out and "posted 2" in out
+    assert "posted 1" in out                     # only the info reached the bus
+    assert "sealed envelopes: 1" in out          # the claim waits in its envelope
 
 
 def test_log_blind_filter_and_all_flag(arena, monkeypatch, capsys):
-    seat(monkeypatch, "a")
-    cx.main(["post", "claim", "alpha finding"])
-    capsys.readouterr()
+    cx.append_msg(arena / "_Msg", {"ts": "t", "from": "a", "type": "claim",
+                                   "msg": "alpha finding"})
     seat(monkeypatch, "b")
     cx.main(["log"])
     assert "alpha finding" not in capsys.readouterr().out
@@ -212,9 +213,8 @@ def test_hook_silent_without_dir(tmp_path, monkeypatch, capsys):
 
 
 def test_hook_reports_unread_and_blind(arena, monkeypatch, capsys):
-    seat(monkeypatch, "a")
-    cx.main(["post", "claim", "x"])
-    capsys.readouterr()
+    cx.append_msg(arena / "_Msg", {"ts": "t", "from": "a", "type": "claim",
+                                   "msg": "x"})
     seat(monkeypatch, "b")
     assert cx.main(["hook"]) == 0
     out = capsys.readouterr().out
@@ -273,6 +273,8 @@ def test_parse_reply_variants():
 
 
 def test_ingest_posts_and_writes_analysis(arena, monkeypatch, capsys):
+    seat(monkeypatch, "mod")
+    cx.main(["phase", "debate"])
     seat(monkeypatch, "qwen")
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(REPLY))
     assert cx.main(["ingest"]) == 0
@@ -283,12 +285,14 @@ def test_ingest_posts_and_writes_analysis(arena, monkeypatch, capsys):
     assert "long reasoning here" in (arena / "_Msg" / "analysis" / "qwen.md").read_text(encoding="utf-8")
 
 
-def test_ingest_blind_coerces_type_to_claim(arena, monkeypatch, capsys):
+def test_ingest_blind_coerces_and_seals(arena, monkeypatch, capsys):
     seat(monkeypatch, "qwen")
     bad = '{"analysis": "x", "type": "challenge", "msg": "sneaky"}'
     monkeypatch.setattr("sys.stdin", __import__("io").StringIO(bad))
     assert cx.main(["ingest"]) == 0
-    assert json.loads(bus_lines(arena)[-1])["type"] == "claim"
+    sealed = (arena / "_Msg" / ".sealed" / "qwen.jsonl").read_text(encoding="utf-8")
+    assert json.loads(sealed)["type"] == "claim"     # coerced AND sealed
+    assert len(bus_lines(arena)) == 0                # nothing leaked to the bus
 
 
 def test_seat_calls_endpoint_and_posts(arena, monkeypatch, capsys):
@@ -301,7 +305,8 @@ def test_seat_calls_endpoint_and_posts(arena, monkeypatch, capsys):
     monkeypatch.setattr(cx, "http_chat", fake_chat)
     seat(monkeypatch, "qwen")
     assert cx.main(["seat", "--endpoint", "http://x/v1", "--model", "m"]) == 0
-    rec = json.loads(bus_lines(arena)[-1])
+    sealed = (arena / "_Msg" / ".sealed" / "qwen.jsonl").read_text(encoding="utf-8")
+    rec = json.loads(sealed)                          # blind claim -> sealed
     assert rec["via"] == "api"
     assert rec["msg"] == "42 sheep"
     assert "count the sheep" in seen_prompt["p"]
@@ -491,3 +496,111 @@ def test_newlines_in_message_stay_one_bus_line(arena, monkeypatch, capsys):
     lines = bus_lines(arena)
     assert len(lines) == before + 1
     assert json.loads(lines[-1])["msg"] == "line one\nline two"
+
+
+# ---------------------------------------------------------------- sealed envelopes
+
+def test_sealed_lifecycle(arena, monkeypatch, capsys):
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "sealed secret"])
+    out = capsys.readouterr().out
+    assert "sealed" in out
+    assert len(bus_lines(arena)) == 0                      # bus is clean
+    assert (arena / "_Msg" / ".sealed" / "a.jsonl").is_file()
+    seat(monkeypatch, "mod")
+    cx.main(["phase", "debate"])                           # envelopes open
+    capsys.readouterr()
+    lines = [json.loads(l) for l in bus_lines(arena)]
+    assert lines[0]["msg"] == "sealed secret"              # revealed first
+    assert "revealed" in lines[-1]["msg"]                  # phase note says so
+    assert not (arena / "_Msg" / ".sealed" / "a.jsonl").exists()
+
+
+def test_sealed_merge_orders_by_ts(arena, monkeypatch, capsys):
+    d = arena / "_Msg"
+    (d / ".sealed").mkdir(exist_ok=True)
+    cx.append_line(d / ".sealed" / "b.jsonl",
+                   {"ts": "2026-01-02", "from": "b", "type": "claim", "msg": "second"})
+    cx.append_line(d / ".sealed" / "a.jsonl",
+                   {"ts": "2026-01-01", "from": "a", "type": "claim", "msg": "first"})
+    cx.set_phase(d, "debate")
+    msgs = [json.loads(l)["msg"] for l in bus_lines(arena)]
+    assert msgs.index("first") < msgs.index("second")
+
+
+def test_run_counts_sealed_claims(arena, cfg_home, monkeypatch, capsys):
+    def sealing_runner(seat_name, cmd_template, prompt, timeout, cli="cxam"):
+        d = cx.find_msg_dir()
+        if cx.read_phase(d) == "blind":
+            cx.post_message(d, {"ts": "t", "from": seat_name, "type": "claim",
+                                "msg": "sealed claim"})
+        return True
+    monkeypatch.setattr(cx, "run_agent_turn", sealing_runner)
+    cx.main(["run", "--force", "--task", "t", "--agent", "s=claude -p {prompt}"])
+    err = capsys.readouterr().err
+    assert "no claim from" not in err          # sealed claims count as posted
+
+
+# ---------------------------------------------------------------- windows routing
+
+def test_run_agent_turn_windows_uses_bash(arena, monkeypatch):
+    captured = {}
+
+    def fake_sub(runner, shell, env, timeout, capture_output, text):
+        captured["runner"] = runner
+        captured["shell"] = shell
+
+        class R:
+            returncode = 0
+            stdout = stderr = ""
+        return R()
+
+    monkeypatch.setattr(cx.subprocess, "run", fake_sub)
+    monkeypatch.setattr(cx.os, "name", "nt")
+    monkeypatch.setattr(cx.shutil, "which", lambda c: r"C:\Git\bash.exe")
+    assert cx.run_agent_turn("s", "claude -p {prompt}", "hi", 5)
+    assert captured["runner"][0] == r"C:\Git\bash.exe"
+    assert captured["runner"][1] == "-lc"
+    assert captured["shell"] is False
+
+
+def test_run_agent_turn_windows_no_bash_fails_clearly(arena, monkeypatch, capsys):
+    monkeypatch.setattr(cx.os, "name", "nt")
+    monkeypatch.setattr(cx.shutil, "which", lambda c: None)
+    assert cx.run_agent_turn("s", "claude -p {prompt}", "hi", 5) is False
+    assert "POSIX shell" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- stress
+
+def test_concurrent_appends_do_not_interleave(arena):
+    import threading
+    d = arena / "_Msg"
+
+    def hammer(n):
+        for i in range(50):
+            cx.append_msg(d, {"ts": "t", "from": "w{}".format(n),
+                              "type": "info", "msg": "m{}-{}".format(n, i)})
+
+    threads = [threading.Thread(target=hammer, args=(n,)) for n in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    lines = bus_lines(arena)
+    assert len(lines) == 400
+    for l in lines:
+        json.loads(l)                      # every line parses -> no interleaving
+
+
+def test_ten_seat_panel_stress(arena, cfg_home, monkeypatch, capsys):
+    monkeypatch.setattr(cx, "run_agent_turn", fake_agent_runner({}))
+    agents = []
+    for i in range(10):
+        agents += ["--agent", "s{}=cli{} {{prompt}}".format(i, i)]
+    assert cx.main(["run", "--force", "--task", "big panel"] + agents) == 0
+    recs = [json.loads(l) for l in bus_lines(arena)]
+    claimants = {r["from"] for r in recs if r["type"] == "claim"}
+    assert claimants == {"s{}".format(i) for i in range(10)}
+    cursors = (arena / "_Msg" / ".seen")
+    assert (arena / "_Msg" / "synthesis.md").is_file()

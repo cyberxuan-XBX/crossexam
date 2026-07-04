@@ -23,16 +23,15 @@ This is what a panel looks like on the wire (real output of
 
 ```console
 === 2. blind phase: three seats post independent claims
-posted #1 as sonnet (claim)
-posted #2 as gpt (claim)
-posted #3 as gemini (claim)
+sealed as sonnet (claim) — envelopes open when the moderator flips to debate
+sealed as gpt (claim) — envelopes open when the moderator flips to debate
+sealed as gemini (claim) — envelopes open when the moderator flips to debate
 
-=== 3. blind means blind: sonnet tries to read, others' claims are withheld
-#1   2026-07-04T13:04:38  sonnet     claim     [analysis/sonnet.md] 56 on site; trusted the dashboard aggregate
-(2 message(s) withheld until debate phase — blind means blind)
-(cursor frozen during blind phase)
+=== 3. blind means blind: sonnet tries to read — nothing is even on the bus
+(no unread messages; phase: blind)
 
-=== 4. moderator flips to debate                 (…output trimmed…)
+=== 4. moderator flips to debate: envelopes open
+phase -> debate (3 sealed claim(s) revealed)     (…output trimmed…)
 
 === 8. full transcript (moderator view, timestamps trimmed for width)
 #1   sonnet     claim     [analysis/sonnet.md] 56 on site; trusted the dashboard aggregate
@@ -189,7 +188,7 @@ Three phases, enforced by the CLI:
 
 | Phase | What happens | What's enforced |
 |---|---|---|
-| **blind** | Each seat writes an independent analysis and posts one `claim` | `cxam read` withholds other seats' messages (anti-anchoring); `verify`/`challenge`/`concede` are rejected |
+| **blind** | Each seat writes an independent analysis and posts one `claim` | Claims go into **sealed envelopes** (`.sealed/`, not the bus) and are revealed only when debate opens; `cxam read` additionally filters stray messages; `verify`/`challenge`/`concede` are rejected |
 | **debate** | Seats read each other, pick *concrete, checkable* statements, and verify them **by running commands** | `verify`/`challenge` without an evidence `--ref` get warned; losers post explicit `concede` |
 | **closed** | A designated seat writes `synthesis.md`: consensus + **disagreement table** | Bus accepts `info` only |
 
@@ -225,9 +224,10 @@ POSIX shell, so on Windows drive agent seats from WSL or Git Bash (API and
 clipboard seats have no such requirement).
 
 **Can a misbehaving agent peek during blind?**
-Yes — the blind phase is enforced by the sanctioned interface (`cxam read`)
-and adapter instructions, but an agent could still `cat` the bus. It's a
-discipline, mechanically assisted, not a security boundary.
+Not at the bus: blind-phase claims live in sealed envelopes and simply aren't
+there until debate opens. `analysis/*.md` files remain plain files though —
+adapters instruct against reading them early, but that part is discipline,
+not a boundary. Full threat model in [SECURITY.md](SECURITY.md).
 
 **Does it spawn/manage my CLIs?**
 `cxam run` spawns headless turns; beyond that it's not a process manager —
@@ -279,6 +279,17 @@ The protocol stands on prior art:
 - [karpathy/llm-council](https://github.com/karpathy/llm-council) — the
   pattern-maker for API-side model councils. CrossExam moves the council out
   of a web app, into your repo, and hands it a shell.
+
+## Roadmap
+
+- **Distributed seats** — one panel, seats on different machines (the bus is
+  already just files; a sync story is the missing piece).
+- **Confidence-weighted synthesis** — weigh verify/challenge by evidence
+  class (`executed` > `cited`), informed by published LLM-as-judge bias
+  research.
+- **MCP server mode** — one line to give any MCP-capable host a
+  `crossexam` tool.
+- Demo recording (asciinema) for the README.
 
 ## Disclaimer
 

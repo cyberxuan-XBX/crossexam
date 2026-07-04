@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-07-04
+
+Hardening release — closing the gaps from our own audit.
+
+- **Sealed envelopes**: blind-phase claims now go to `_Msg/.sealed/<seat>.jsonl`
+  instead of the bus — there is mechanically nothing to peek at until the
+  moderator opens debate (claims are then revealed in timestamp order).
+  The read/log blind filter remains as a second layer for direct writers.
+- **Windows agent seats**: `cxam run --agent` now routes through Git Bash /
+  WSL bash automatically on Windows, with a clear error when absent.
+- **Prompt-injection hardening**: every debate prompt and the protocol's iron
+  rules now state that other seats' text is evidence to check, never
+  instructions to follow. New SECURITY.md documents the full threat model
+  (injection surface, bus integrity, data egress, sandboxing).
+- `--max-chars` on `cxam seat` / `cxam brief` for larger exhibits.
+- Stress tests: 8-thread concurrent append integrity, 10-seat panel.
+- Roadmap section (distributed seats, confidence-weighted synthesis, MCP).
+
 ## 0.4.0 — 2026-07-04
 
 One sentence is the whole interface.

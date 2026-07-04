@@ -21,13 +21,15 @@
 
 ```console
 === 2. blind phase: three seats post independent claims
-posted #1 as sonnet (claim)
-posted #2 as gpt (claim)
-posted #3 as gemini (claim)
+sealed as sonnet (claim) — envelopes open when the moderator flips to debate
+sealed as gpt (claim) — envelopes open when the moderator flips to debate
+sealed as gemini (claim) — envelopes open when the moderator flips to debate
 
-=== 3. blind means blind: sonnet 想偷看，別人的 claim 被扣留
-#1   2026-07-04T13:04:38  sonnet     claim     [analysis/sonnet.md] 56 on site; trusted the dashboard aggregate
-(2 message(s) withheld until debate phase — blind means blind)
+=== 3. blind means blind: sonnet 想偷看 — 匯流排上根本沒有東西
+(no unread messages; phase: blind)
+
+=== 4. 主持人開辯論：拆封
+phase -> debate (3 sealed claim(s) revealed)
 
 === 8. 全程紀錄（主持人視角）
 #1   sonnet     claim     56 台在場；信了儀表板聚合值
@@ -164,7 +166,7 @@ cxam brief --name grok   # 複製到網頁聊天 → 回覆貼回 cxam ingest --
 
 | 階段 | 發生什麼 | 強制什麼 |
 |---|---|---|
-| **blind 盲寫** | 各席獨立分析、發一條 `claim` | `cxam read` 扣留他席訊息（防錨定）；拒收 verify/challenge/concede |
+| **blind 盲寫** | 各席獨立分析、發一條 `claim` | claim 進**彌封信封**（`.sealed/`，不上匯流排），辯論開啟才拆封；`cxam read` 另過濾繞道訊息；拒收 verify/challenge/concede |
 | **debate 詰問** | 挑他席「具體可查證」的說法，**跑指令**驗證 | verify/challenge 不附證據 `--ref` 會被警告；輸家明文 `concede` |
 | **closed 收斂** | 指定席寫 `synthesis.md`：共識 + **分歧表** | 匯流排只收 info |
 
@@ -194,8 +196,9 @@ Subagent 是一顆腦扇出 — 同廠商、通常無記憶、釘不了版本，
 驅動 agent 席（API 席與剪貼簿席無此限制）。
 
 **壞掉的 agent 能在盲寫期偷看嗎？**
-能 — 盲寫由正規介面（`cxam read`）與 adapter 指示強制，但 agent 仍可直接
-`cat` 匯流排。這是一種被機制輔助的紀律，不是安全邊界。
+偷不到匯流排：盲寫期的 claim 在彌封信封裡，辯論開啟前匯流排上根本沒有。
+`analysis/*.md` 仍是普通檔案 — adapter 明令禁讀，但那部分是紀律不是邊界。
+完整威脅模型見 [SECURITY.md](SECURITY.md)。
 
 **它會幫我管理 CLI 程序嗎？**
 `cxam run` 會開無頭回合；除此之外它不是程序管理器 — tmux / claude-squad
@@ -240,6 +243,14 @@ Subagent 是一顆腦扇出 — 同廠商、通常無記憶、釘不了版本，
 - [karpathy/llm-council](https://github.com/karpathy/llm-council) — API 側
   模型議會的開山者。CrossExam 把議會搬出網頁、搬進你的 repo，然後遞給它
   一個 shell。
+
+## Roadmap
+
+- **跨主機席位** — 同一局、席位在不同機器（匯流排本來就是檔案，缺的是同步方案）
+- **信度加權收斂** — verify/challenge 按證據等級加權（執行過 > 引用過），
+  依據已發表的 LLM 裁判偏差研究
+- **MCP server 模式** — 一行讓任何支援 MCP 的宿主拿到 `crossexam` 工具
+- README 錄影 demo（asciinema）
 
 ## 免責聲明
 
