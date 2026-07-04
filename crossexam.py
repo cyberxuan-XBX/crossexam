@@ -437,9 +437,10 @@ def cmd_post(args):
     d = need_dir()
     if d is None:
         return 2
-    seat = get_seat()
+    seat = getattr(args, "as_seat", None) or get_seat()
     if not seat:
-        return die("no seat. Set CX_SEAT (e.g. `CX_SEAT=sonnet claude`).")
+        return die("no seat. Set CX_SEAT (e.g. `CX_SEAT=sonnet claude`) "
+                   "or pass --as <name> (e.g. `cxam post info \"...\" --as human`).")
     if args.type not in TYPES:
         return die("type must be one of: " + ", ".join(TYPES))
     phase = read_phase(d)
@@ -851,6 +852,8 @@ def main(argv=None):
     sp.add_argument("type", choices=TYPES)
     sp.add_argument("message")
     sp.add_argument("--ref", help="evidence pointer, e.g. analysis/sonnet.md#ghosts")
+    sp.add_argument("--as", dest="as_seat", metavar="NAME",
+                    help="sign as this seat (for humans/moderators without CX_SEAT)")
     sp.set_defaults(fn=cmd_post)
 
     sp = sub.add_parser("read", help="print unread messages, advance cursor")

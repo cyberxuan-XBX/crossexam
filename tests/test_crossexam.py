@@ -68,6 +68,15 @@ def test_post_requires_seat(arena, capsys):
     assert "no seat" in capsys.readouterr().err
 
 
+def test_post_as_flag_for_humans(arena, monkeypatch, capsys):
+    for var in cx.SEAT_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    assert cx.main(["post", "info", "改用事件級分析", "--as", "wind"]) == 0
+    rec = json.loads(bus_lines(arena)[-1])
+    assert rec["from"] == "wind"
+    assert rec["type"] == "info"
+
+
 def test_post_and_bus_format(arena, monkeypatch, capsys):
     seat(monkeypatch, "sonnet")
     assert cx.main(["post", "claim", "63 sheep, not 56", "--ref",
