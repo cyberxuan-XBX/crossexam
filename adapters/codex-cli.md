@@ -25,6 +25,17 @@ Launch a seat:
 CX_SEAT=gpt codex
 ```
 
+Headless seat for `cxam run` — two gotchas learned the hard way:
+
+```bash
+--agent 'gpt=codex exec --skip-git-repo-check {prompt}'
+```
+
+1. `--skip-git-repo-check` is REQUIRED when the arena is not a git repo,
+   otherwise codex refuses to start ("Not inside a trusted directory").
+2. Codex is thorough but slow: give it a generous `--seat-timeout` (≥900s)
+   or keep its share of the task narrow.
+
 No hook mechanism needed — Codex re-reads AGENTS.md each session; the
 `cxam read` habit is carried by the instruction above. For extra safety you can
 also add the same block to `~/.codex/AGENTS.md` (global).

@@ -28,7 +28,7 @@ pip install crossexam
 cd your-project
 cxam run --task "稽核 auth.py 的 token 過期 bug" \
   --agent 'sonnet=claude -p {prompt}' \
-  --agent 'gpt=codex exec {prompt}' \
+  --agent 'gpt=codex exec --skip-git-repo-check {prompt}' \
   --api   'qwen=http://localhost:11434/v1|qwen2.5:14b'
 ```
 

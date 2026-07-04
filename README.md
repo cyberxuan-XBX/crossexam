@@ -58,7 +58,7 @@ pip install crossexam
 cd your-project
 cxam run --task "Audit auth.py for the token expiry bug" \
   --agent 'sonnet=claude -p {prompt}' \
-  --agent 'gpt=codex exec {prompt}' \
+  --agent 'gpt=codex exec --skip-git-repo-check {prompt}' \
   --api   'qwen=http://localhost:11434/v1|qwen2.5:14b'
 ```
 
