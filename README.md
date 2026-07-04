@@ -299,4 +299,4 @@ products. Product names are used solely to describe interoperability.
 
 ---
 
-MIT © 2026 XBX (Taiyang Software) — Built in Taiwan 🇹🇼
+MIT © 2026 XBX — Built in Taiwan 🇹🇼
