@@ -12,7 +12,7 @@ no API keys, no vendor lock-in. If your agent can run shell commands, it
 can sit at the table.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 import argparse
 import datetime
@@ -20,6 +20,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -139,6 +140,87 @@ PHASE_INSTRUCTIONS = {
         "'concede' if your own earlier claim is beaten (say whose framework "
         "you adopt). No praising and no doubting without cited evidence."),
 }
+
+# One-time `cxam setup` materializes these into the user's config file, where
+# model names are plain text — edit freely when vendors rename their tiers.
+CLAUDE_TOOLS = '--allowedTools "Bash,Read,Write,Edit,Glob,Grep"'
+VENDOR_TRIOS = {
+    "anthropic": {
+        "cli": "claude",
+        "agents": [
+            ["haiku", "claude --model haiku -p {prompt} " + CLAUDE_TOOLS],
+            ["sonnet", "claude --model sonnet -p {prompt} " + CLAUDE_TOOLS],
+            ["opus", "claude --model opus -p {prompt} " + CLAUDE_TOOLS],
+        ],
+        "synthesis": "opus",
+    },
+    "openai": {
+        "cli": "codex",
+        "agents": [
+            ["codex-mini", "codex exec --skip-git-repo-check -m gpt-5.1-codex-mini {prompt}"],
+            ["codex", "codex exec --skip-git-repo-check -m gpt-5.1-codex {prompt}"],
+            ["codex-max", "codex exec --skip-git-repo-check -m gpt-5.1-codex-max {prompt}"],
+        ],
+        "synthesis": "codex-max",
+    },
+    "google": {
+        "cli": "gemini",
+        "agents": [
+            ["flash-lite", "gemini -m gemini-2.5-flash-lite -p {prompt}"],
+            ["flash", "gemini -m gemini-2.5-flash -p {prompt}"],
+            ["pro", "gemini -m gemini-2.5-pro -p {prompt}"],
+        ],
+        "synthesis": "pro",
+    },
+}
+LOCAL_ENDPOINT = "http://localhost:11434/v1"
+
+
+def config_path():
+    env = os.environ.get("CROSSEXAM_CONFIG")
+    if env:
+        return Path(env)
+    return Path.home() / ".config" / "crossexam" / "config.json"
+
+
+def load_config():
+    try:
+        return json.loads(config_path().read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def detect_local_models(endpoint=LOCAL_ENDPOINT, limit=3):
+    """Return up to `limit` model ids from a local OpenAI-compatible server."""
+    try:
+        with urllib.request.urlopen(endpoint.rstrip("/") + "/models", timeout=1.5) as r:
+            data = json.loads(r.read().decode("utf-8", errors="replace"))
+        ids = [m.get("id") for m in data.get("data", []) if m.get("id")]
+        ids = [i for i in ids if "embed" not in i]  # embedding models can't debate
+        return ids[:limit]
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, AttributeError):
+        return []
+
+
+def detect_presets():
+    """Detect installed CLIs and local servers; return {name: preset} dict."""
+    presets = {}
+    for vendor, spec in VENDOR_TRIOS.items():
+        if shutil.which(spec["cli"]):
+            presets[vendor + "-trio"] = {
+                "agents": [list(a) for a in spec["agents"]],
+                "apis": [],
+                "synthesis": spec["synthesis"],
+            }
+    models = detect_local_models()
+    if models:
+        presets["local-trio"] = {
+            "agents": [],
+            "apis": [[m.split(":")[0].split("/")[-1], LOCAL_ENDPOINT, m] for m in models],
+            "synthesis": None,
+        }
+    return presets
+
 
 AGENT_PROMPTS = {
     "blind": (
@@ -709,16 +791,80 @@ def seat_has_posted(d, seat, mtype=None):
                for m in msgs)
 
 
+def cmd_setup(args):
+    """Detect installed AI CLIs / local servers, write default presets."""
+    presets = detect_presets()
+    if not presets:
+        return die("nothing detected. Install an AI CLI (claude / codex / "
+                   "gemini) or start a local OpenAI-compatible server "
+                   "(e.g. ollama), then rerun `cxam setup`.")
+    order = ["anthropic-trio", "openai-trio", "google-trio", "local-trio"]
+    found = [n for n in order if n in presets]
+    default = (args.vendor + "-trio") if args.vendor else found[0]
+    if default not in presets:
+        return die("--vendor {} not detected. Found: {}".format(
+            args.vendor, ", ".join(found)))
+    cfg = load_config()
+    cfg.setdefault("presets", {}).update(presets)
+    cfg["default_preset"] = default
+    p = config_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n",
+                 encoding="utf-8")
+    print("detected presets: " + ", ".join(found))
+    for n in found:
+        pr = presets[n]
+        seats = [a[0] for a in pr["agents"]] + [a[0] for a in pr["apis"]]
+        print("  {:<15} {}{}".format(n, " / ".join(seats),
+                                     "   <- default" if n == default else ""))
+    print("config: {}".format(p))
+    print("(model names live in that file — edit freely when vendors rename tiers)")
+    print("\nyou're set. Try:  cxam run \"your question here\"")
+    return 0
+
+
+def resolve_seats(args):
+    """Explicit flags win; else --preset / config default / live detection."""
+    agents = [parse_agent_spec(s) for s in (args.agent or [])]
+    apis = [parse_api_spec(s) for s in (args.api or [])]
+    if agents or apis:
+        return agents, apis, args.synthesis
+    cfg = load_config()
+    name = args.preset or cfg.get("default_preset")
+    preset = (cfg.get("presets") or {}).get(name)
+    if preset is None:
+        detected = detect_presets()
+        if args.preset:
+            preset = detected.get(args.preset)
+            if preset is None:
+                raise ValueError("preset '{}' not in config or detection. "
+                                 "Run `cxam setup`.".format(args.preset))
+            name = args.preset
+        elif detected:
+            order = ["anthropic-trio", "openai-trio", "google-trio", "local-trio"]
+            name = next(n for n in order if n in detected)
+            preset = detected[name]
+        else:
+            raise ValueError(
+                "no seats. Either pass --agent/--api, or run `cxam setup` "
+                "(needs an AI CLI or a local model server).")
+    print("preset: {} ({})".format(
+        name, " / ".join([a[0] for a in preset["agents"]]
+                         + [a[0] for a in preset["apis"]])))
+    agents = [tuple(a) for a in preset["agents"]]
+    apis = [tuple(a) for a in preset["apis"]]
+    synthesis = args.synthesis or preset.get("synthesis")
+    return agents, apis, synthesis
+
+
 def cmd_run(args):
     """One-command panel: blind -> debate -> synthesis, no terminals juggling."""
+    if not args.task and args.task_pos:
+        args.task = args.task_pos
     try:
-        agents = [parse_agent_spec(s) for s in (args.agent or [])]
-        apis = [parse_api_spec(s) for s in (args.api or [])]
+        agents, apis, synthesis_pick = resolve_seats(args)
     except ValueError as e:
-        return die("bad seat spec: {!r}. Use --agent 'name=claude -p {{prompt}}' "
-                   "or --api 'name=http://host/v1|model'".format(str(e)))
-    if not agents and not apis:
-        return die("no seats. Give at least one --agent or --api.")
+        return die(str(e))
     seats = [n for n, _ in agents] + [n for n, _, _ in apis]
     if len(set(seats)) != len(seats):
         return die("duplicate seat names.")
@@ -769,7 +915,7 @@ def cmd_run(args):
 
     print("== synthesis")
     set_phase(d, "closed")
-    synth = args.synthesis or (agents[0][0] if agents else apis[0][0])
+    synth = synthesis_pick or (agents[0][0] if agents else apis[0][0])
     agent_map = dict(agents)
     if synth in agent_map:
         run_agent_turn(synth, agent_map[synth],
@@ -883,9 +1029,19 @@ def main(argv=None):
     sp.add_argument("--timeout", type=float, default=180.0)
     sp.set_defaults(fn=cmd_seat)
 
+    sp = sub.add_parser("setup", help="one-time: detect your AI CLIs / local "
+                                      "models, write default tier-panel presets")
+    sp.add_argument("--vendor", choices=["anthropic", "openai", "google", "local"],
+                    help="force which vendor trio becomes the default")
+    sp.set_defaults(fn=cmd_setup)
+
     sp = sub.add_parser("run", help="one command, whole panel: blind -> "
                                     "debate -> synthesis")
+    sp.add_argument("task_pos", nargs="?", metavar="TASK",
+                    help="the question (same as --task)")
     sp.add_argument("--task", help="task description")
+    sp.add_argument("--preset", help="named preset from `cxam setup` "
+                                     "(default: config default_preset)")
     sp.add_argument("--exhibit", action="append",
                     help="file to copy into _Msg/exhibits/ (repeatable)")
     sp.add_argument("--agent", action="append", metavar="NAME=CMD",

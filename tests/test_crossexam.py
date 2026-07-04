@@ -321,6 +321,79 @@ def test_seat_unparseable_reply_saves_raw(arena, monkeypatch, capsys):
     assert (arena / "_Msg" / "analysis" / "qwen.raw.txt").read_text(encoding="utf-8") == "utter prose, no json"
 
 
+# ---------------------------------------------------------------- setup / presets
+
+@pytest.fixture()
+def cfg_home(tmp_path, monkeypatch):
+    cfg = tmp_path / "cfgdir" / "config.json"
+    monkeypatch.setenv("CROSSEXAM_CONFIG", str(cfg))
+    return cfg
+
+
+def test_setup_detects_and_writes_config(arena, cfg_home, monkeypatch, capsys):
+    monkeypatch.setattr(cx.shutil, "which",
+                        lambda c: "/usr/bin/" + c if c == "claude" else None)
+    monkeypatch.setattr(cx, "detect_local_models", lambda *a, **k: ["qwen2.5:14b"])
+    assert cx.main(["setup"]) == 0
+    out = capsys.readouterr().out
+    assert "anthropic-trio" in out and "local-trio" in out and "default" in out
+    cfg = json.loads(cfg_home.read_text(encoding="utf-8"))
+    assert cfg["default_preset"] == "anthropic-trio"
+    assert cfg["presets"]["anthropic-trio"]["synthesis"] == "opus"
+    assert cfg["presets"]["local-trio"]["apis"][0][2] == "qwen2.5:14b"
+
+
+def test_setup_nothing_detected(arena, cfg_home, monkeypatch, capsys):
+    monkeypatch.setattr(cx.shutil, "which", lambda c: None)
+    monkeypatch.setattr(cx, "detect_local_models", lambda *a, **k: [])
+    assert cx.main(["setup"]) == 1
+
+
+def test_run_uses_default_preset_and_positional_task(arena, cfg_home, monkeypatch, capsys):
+    cfg_home.parent.mkdir(parents=True, exist_ok=True)
+    cfg_home.write_text(json.dumps({
+        "default_preset": "anthropic-trio",
+        "presets": {"anthropic-trio": {
+            "agents": [["haiku", "c1 {prompt}"], ["opus", "c2 {prompt}"]],
+            "apis": [], "synthesis": "opus"}}}), encoding="utf-8")
+    ran = []
+
+    def fake_runner(seat_name, cmd_template, prompt, timeout, cli="cxam"):
+        ran.append((seat_name, cx.read_phase(cx.find_msg_dir())))
+        d = cx.find_msg_dir()
+        if cx.read_phase(d) == "blind":
+            cx.append_msg(d, {"ts": "t", "from": seat_name, "type": "claim", "msg": "x"})
+        elif cx.read_phase(d) == "closed":
+            (d / "synthesis.md").write_text("## Consensus\n", encoding="utf-8")
+        return True
+
+    monkeypatch.setattr(cx, "run_agent_turn", fake_runner)
+    assert cx.main(["run", "數羊", "--force"]) == 0
+    out = capsys.readouterr().out
+    assert "preset: anthropic-trio" in out
+    assert "數羊" in (arena / "_Msg" / "task.md").read_text(encoding="utf-8")
+    # synthesis went to the preset's designated top-tier seat
+    assert ("opus", "closed") in ran
+
+
+def test_run_explicit_flags_beat_preset(arena, cfg_home, monkeypatch, capsys):
+    cfg_home.parent.mkdir(parents=True, exist_ok=True)
+    cfg_home.write_text(json.dumps({"default_preset": "x", "presets": {"x": {
+        "agents": [["never", "nope {prompt}"]], "apis": []}}}), encoding="utf-8")
+    monkeypatch.setattr(cx, "run_agent_turn", fake_agent_runner({}))
+    assert cx.main(["run", "--force", "--task", "t",
+                    "--agent", "mine=claude -p {prompt}"]) == 0
+    froms = {json.loads(l)["from"] for l in bus_lines(arena)}
+    assert "mine" in froms and "never" not in froms
+
+
+def test_run_no_seats_no_config_errors(arena, cfg_home, monkeypatch, capsys):
+    monkeypatch.setattr(cx.shutil, "which", lambda c: None)
+    monkeypatch.setattr(cx, "detect_local_models", lambda *a, **k: [])
+    assert cx.main(["run", "--force", "--task", "t"]) == 1
+    assert "cxam setup" in capsys.readouterr().err
+
+
 # ---------------------------------------------------------------- cxam run
 
 def fake_agent_runner(script):
@@ -368,7 +441,10 @@ def test_run_refuses_dirty_bus_without_force(arena, monkeypatch, capsys):
     assert "already has traffic" in capsys.readouterr().err
 
 
-def test_run_requires_seats(arena, capsys):
+def test_run_requires_seats(arena, cfg_home, monkeypatch, capsys):
+    # isolate from the host machine: no CLIs, no local server, no config
+    monkeypatch.setattr(cx.shutil, "which", lambda c: None)
+    monkeypatch.setattr(cx, "detect_local_models", lambda *a, **k: [])
     assert cx.main(["run", "--force"]) == 1
 
 

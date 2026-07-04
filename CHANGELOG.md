@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0 — 2026-07-04
+
+One sentence is the whole interface.
+
+- `cxam setup` — one-time detection of installed AI CLIs (claude / codex /
+  gemini) and local OpenAI-compatible servers (ollama, vLLM, LM Studio);
+  writes editable tier-panel presets to `~/.config/crossexam/config.json`.
+- Default panel = one vendor's three model tiers cross-examining each other
+  (haiku/sonnet/opus, codex-mini/codex/codex-max, flash-lite/flash/pro, or
+  your local models) with the top tier as synthesizer. Cross-vendor panels
+  remain one `--preset`/`--agent` away.
+- `cxam run "your question"` — positional task, no flags needed after setup.
+- `/crossexam` slash-command adapter for Claude Code (one sentence in-session).
+
 ## 0.3.0 — 2026-07-04
 
 The porcelain: one command runs the whole panel.
