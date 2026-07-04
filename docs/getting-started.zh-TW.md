@@ -28,7 +28,19 @@ pip install crossexam
 | 任何 OpenAI 相容 API（OpenAI、OpenRouter、公司自架模型、本機 Ollama…） | API 席 — 自動化，讀材料出意見 |
 | 只有網頁版聊天帳號（ChatGPT、Claude.ai、Gemini…） | 剪貼簿席 — 複製貼上就能參加 |
 
-## 第一局（10 分鐘）
+## 第一局（3 分鐘）
+
+```bash
+cxam setup        # 一次性：自動偵測你裝的 AI CLI 和本地模型，寫好預設
+mkdir review && cd review
+cp ~/Downloads/report.csv .
+cxam run "驗算 report.csv 的月度加總是否正確，找出任何異常列" --exhibit report.csv
+```
+
+預設面板 = 你那家廠商的三層模型（例：haiku/sonnet/opus）互相詰問，
+最高層寫判決書。想跨廠商混桌才需要下面的進階寫法。
+
+## 進階：自組面板（10 分鐘）
 
 以「審一份報表數字對不對」為例，換成你自己的題目即可。
 
