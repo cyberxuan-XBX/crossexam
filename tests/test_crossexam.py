@@ -202,6 +202,12 @@ def test_log_blind_filter_and_all_flag(arena, monkeypatch, capsys):
     seat(monkeypatch, "b")
     cx.main(["log"])
     assert "alpha finding" not in capsys.readouterr().out
+    # --all does NOT lift the blind veil for a seated participant (peek bypass)
+    cx.main(["log", "--all"])
+    assert "alpha finding" not in capsys.readouterr().out
+    # only an unseated moderator sees all
+    for var in cx.SEAT_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
     cx.main(["log", "--all"])
     assert "alpha finding" in capsys.readouterr().out
 
@@ -499,6 +505,116 @@ def test_newlines_in_message_stay_one_bus_line(arena, monkeypatch, capsys):
     lines = bus_lines(arena)
     assert len(lines) == before + 1
     assert json.loads(lines[-1])["msg"] == "line one\nline two"
+
+
+# ------------------------------------------- dogfood-found regressions (v0.5.1)
+
+def test_seat_name_path_traversal_rejected(arena, monkeypatch, capsys):
+    # finding #3: CX_SEAT="../../pwned" must NOT write outside _Msg/
+    seat(monkeypatch, "../../pwned")
+    assert cx.main(["post", "claim", "x"]) == 1
+    assert "invalid seat name" in capsys.readouterr().err
+    assert not (arena.parent.parent / "pwned.jsonl").exists()
+    for bad in ["a/b", "..", "a\\b", "", "x" * 65]:
+        with pytest.raises(ValueError):
+            cx.safe_seat(bad)
+    for ok in ["sonnet", "codex-max", "gpt.5", "qwen2.5", "a_b"]:
+        assert cx.safe_seat(ok) == ok
+
+
+def test_traversal_via_as_flag_rejected(arena, capsys):
+    assert cx.main(["post", "info", "x", "--as", "../evil"]) == 1
+    assert "invalid seat name" in capsys.readouterr().err
+
+
+def test_traversal_via_agent_spec_rejected(arena, capsys):
+    assert cx.main(["run", "--force", "--task", "t",
+                    "--agent", "../evil=claude -p {prompt}"]) == 1
+
+
+def test_log_all_does_not_bypass_blind_for_seated_agent(arena, monkeypatch, capsys):
+    # finding #1: a seated agent must not peek via `log --all` during blind
+    cx.append_msg(arena / "_Msg", {"ts": "t", "from": "a", "type": "claim",
+                                   "msg": "blind secret"})
+    seat(monkeypatch, "b")
+    cx.main(["log", "--all"])
+    out = capsys.readouterr().out
+    assert "blind secret" not in out
+    # but an unseated moderator still sees everything
+    for var in cx.SEAT_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    cx.main(["log", "--all"])
+    assert "blind secret" in capsys.readouterr().out
+
+
+def test_blind_to_closed_does_not_reveal(arena, monkeypatch, capsys):
+    # finding #2: jumping straight to closed must NOT dump sealed claims
+    seat(monkeypatch, "a")
+    cx.main(["post", "claim", "still sealed"])
+    capsys.readouterr()
+    seat(monkeypatch, "mod")
+    cx.main(["phase", "closed"])
+    capsys.readouterr()
+    assert all("still sealed" not in l for l in bus_lines(arena))
+    assert (arena / "_Msg" / ".sealed" / "a.jsonl").is_file()  # stays sealed
+
+
+def test_run_force_clears_stale_sealed(arena, cfg_home, monkeypatch, capsys):
+    # finding #5: a stale envelope must not leak into a new --force run
+    sd = arena / "_Msg" / ".sealed"
+    sd.mkdir(exist_ok=True)
+    cx.append_line(sd / "s0.jsonl",
+                   {"ts": "t", "from": "s0", "type": "claim", "msg": "STALE"})
+    monkeypatch.setattr(cx, "run_agent_turn", fake_agent_runner({}))
+    cx.main(["run", "--force", "--task", "new task", "--agent", "s0=c {prompt}"])
+    assert all("STALE" not in l for l in bus_lines(arena))
+
+
+def test_run_refuses_dirty_sealed_without_force(arena, cfg_home, monkeypatch, capsys):
+    sd = arena / "_Msg" / ".sealed"
+    sd.mkdir(exist_ok=True)
+    cx.append_line(sd / "s0.jsonl",
+                   {"ts": "t", "from": "s0", "type": "claim", "msg": "STALE"})
+    monkeypatch.setattr(cx.shutil, "which", lambda c: None)
+    monkeypatch.setattr(cx, "detect_local_models", lambda *a, **k: [])
+    assert cx.main(["run", "--task", "t", "--agent", "s0=c {prompt}"]) == 1
+    assert "sealed envelopes" in capsys.readouterr().err
+
+
+def test_concurrent_seal_and_reveal_no_crash_no_loss(arena, monkeypatch):
+    # findings #4 + #6: sealing and revealing must be serialized
+    import threading
+    d = arena / "_Msg"
+    errors = []
+
+    def sealer(i):
+        try:
+            for j in range(20):
+                cx.post_message(d, {"ts": "t{}-{}".format(i, j),
+                                    "from": "s{}".format(i), "type": "claim",
+                                    "msg": "c{}-{}".format(i, j)})
+        except Exception as e:  # noqa
+            errors.append(repr(e))
+
+    def revealer():
+        try:
+            for _ in range(20):
+                cx.merge_sealed(d)
+        except Exception as e:  # noqa
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=sealer, args=(i,)) for i in range(4)]
+    threads += [threading.Thread(target=revealer) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    cx.merge_sealed(d)                      # final drain
+    assert errors == []                     # #4: no FileNotFoundError crash
+    bus = [json.loads(l)["msg"] for l in bus_lines(arena)]
+    # #6: every sealed claim ended up on the bus, none stranded
+    assert len(bus) == 4 * 20
+    assert not list((d / ".sealed").glob("*.jsonl"))
 
 
 # ---------------------------------------------------------------- sealed envelopes

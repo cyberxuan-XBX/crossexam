@@ -12,7 +12,7 @@ no API keys, no vendor lock-in. If your agent can run shell commands, it
 can sit at the table.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 import argparse
 import datetime
@@ -291,11 +291,29 @@ def find_msg_dir(start=None):
     return None
 
 
+SEAT_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+def safe_seat(name):
+    """Validate a seat name before it becomes part of a filesystem path.
+    Rejects path separators, '..', and anything outside a conservative set —
+    a seat name is used to build .sealed/<seat>.jsonl, .seen/<seat>,
+    analysis/<seat>.md, so an unchecked name is arbitrary-file-write."""
+    if name is None:
+        return None
+    name = str(name).strip()
+    if not SEAT_RE.match(name) or name in (".", ".."):
+        raise ValueError(
+            "invalid seat name {!r}: use letters, digits, dot, dash, "
+            "underscore (max 64 chars), no path separators.".format(name))
+    return name
+
+
 def get_seat():
     for var in SEAT_ENV_VARS:
         v = os.environ.get(var, "").strip()
         if v:
-            return v
+            return safe_seat(v)
     return None
 
 
@@ -391,35 +409,53 @@ def sealed_dir(d):
     return d / ".sealed"
 
 
+def phase_lock(d):
+    """Serializes sealing and revealing so a claim can't be sealed after the
+    reveal pass has already run (which would strand it), and two concurrent
+    reveals can't race read-then-unlink into a crash."""
+    return _DirLock(d / ".phase")
+
+
 def post_message(d, record):
     """Route a message: blind-phase claims go into the seat's sealed envelope
     (nothing to peek at on the bus); everything else goes straight to the bus.
-    Returns 'sealed' or 'posted'."""
-    if read_phase(d) == "blind" and record.get("type") == "claim":
-        sd = sealed_dir(d)
-        sd.mkdir(exist_ok=True)
-        append_line(sd / (record["from"] + ".jsonl"), record)
-        return "sealed"
+    Returns 'sealed' or 'posted'. The phase re-read and the sealed write happen
+    under phase_lock so they can't interleave with merge_sealed()."""
+    if record.get("type") == "claim":
+        with phase_lock(d):
+            if read_phase(d) == "blind":
+                sd = sealed_dir(d)
+                sd.mkdir(exist_ok=True)
+                append_line(sd / (safe_seat(record["from"]) + ".jsonl"), record)
+                return "sealed"
+            append_msg(d, record)
+            return "posted"
     append_msg(d, record)
     return "posted"
 
 
 def merge_sealed(d):
-    """Reveal all sealed envelopes onto the bus in timestamp order."""
+    """Reveal all sealed envelopes onto the bus in timestamp order. Runs under
+    phase_lock: the read-then-unlink window is exclusive, so a concurrent
+    reveal can't hit FileNotFoundError and a concurrent seal can't be lost."""
     sd = sealed_dir(d)
     if not sd.is_dir():
         return 0
     recs = []
-    for f in sorted(sd.glob("*.jsonl")):
-        for line in f.read_text(encoding="utf-8").splitlines():
+    with phase_lock(d):
+        for f in sorted(sd.glob("*.jsonl")):
             try:
-                recs.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-        f.unlink()
-    recs.sort(key=lambda r: r.get("ts", ""))
-    for r in recs:
-        append_msg(d, r)
+                for line in f.read_text(encoding="utf-8").splitlines():
+                    try:
+                        recs.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+                f.unlink()
+            except FileNotFoundError:
+                continue  # another reveal already consumed it
+        recs.sort(key=lambda r: r.get("ts", ""))
+        for r in recs:
+            append_msg(d, r)
     return len(recs)
 
 
@@ -608,7 +644,7 @@ def cmd_post(args):
     d = need_dir()
     if d is None:
         return 2
-    seat = getattr(args, "as_seat", None) or get_seat()
+    seat = safe_seat(getattr(args, "as_seat", None)) or get_seat()
     if not seat:
         return die("no seat. Set CX_SEAT (e.g. `CX_SEAT=sonnet claude`) "
                    "or pass --as <name> (e.g. `cxam post info \"...\" --as human`).")
@@ -728,15 +764,18 @@ def cmd_log(args):
     msgs, bad = load_msgs(d)
     phase = read_phase(d)
     withheld = 0
-    if phase == "blind" and seat and not args.all:
+    # During blind, a SEATED agent is always filtered — `--all` does not lift
+    # the blind veil for a participant (that was a peek bypass). `--all` only
+    # matters for an unseated human/moderator, who already sees everything.
+    if phase == "blind" and seat:
         visible = [m for m in msgs if blind_visible(m, seat)]
         withheld = len(msgs) - len(visible)
         msgs = visible
     for m in msgs:
         print(fmt(m))
     if withheld:
-        print("({} message(s) withheld — blind phase; humans can pass --all)"
-              .format(withheld))
+        print("({} message(s) withheld — blind phase; only an unseated "
+              "moderator sees all)".format(withheld))
     if bad:
         print("({} malformed line(s) skipped)".format(bad), file=sys.stderr)
     return 0
@@ -766,7 +805,7 @@ def cmd_brief(args):
     d = need_dir()
     if d is None:
         return 2
-    seat = args.name or get_seat()
+    seat = safe_seat(args.name) or get_seat()
     if not seat:
         return die("no seat. Pass --name or set CX_SEAT.")
     phase = read_phase(d)
@@ -781,7 +820,7 @@ def cmd_ingest(args):
     d = need_dir()
     if d is None:
         return 2
-    seat = args.name or get_seat()
+    seat = safe_seat(args.name) or get_seat()
     if not seat:
         return die("no seat. Pass --name or set CX_SEAT.")
     text = sys.stdin.read()
@@ -798,7 +837,7 @@ def cmd_seat(args):
     d = need_dir()
     if d is None:
         return 2
-    seat = args.name or get_seat()
+    seat = safe_seat(args.name) or get_seat()
     if not seat:
         return die("no seat. Pass --name or set CX_SEAT.")
     endpoint = args.endpoint or os.environ.get("CX_ENDPOINT")
@@ -833,14 +872,14 @@ def parse_agent_spec(spec):
     if "=" not in spec:
         raise ValueError(spec)
     name, cmd = spec.split("=", 1)
-    return name.strip(), cmd.strip()
+    return safe_seat(name.strip()), cmd.strip()
 
 
 def parse_api_spec(spec):
     """'name=endpoint|model' -> (name, endpoint, model)."""
     name, rest = spec.split("=", 1)
     endpoint, model = rest.rsplit("|", 1)
-    return name.strip(), endpoint.strip(), model.strip()
+    return safe_seat(name.strip()), endpoint.strip(), model.strip()
 
 
 def run_agent_turn(seat, cmd_template, prompt, timeout, cli="cxam"):
@@ -978,9 +1017,17 @@ def cmd_run(args):
         return die("duplicate seat names.")
 
     d = Path.cwd() / MSG_DIR
-    if d.is_dir() and bus_line_count(d) > 0 and not args.force:
-        return die("_Msg/ already has traffic. Run in a fresh directory or "
-                   "pass --force to continue on top of it.")
+    # "Fresh" means no bus traffic AND no unrevealed sealed claims — an
+    # abandoned blind run leaves bus.jsonl empty but a stale envelope behind,
+    # which would otherwise surface in this unrelated run when debate opens.
+    if d.is_dir() and (bus_line_count(d) > 0 or sealed_count(d) > 0) and not args.force:
+        return die("_Msg/ already has traffic or sealed envelopes. Run in a "
+                   "fresh directory or pass --force to continue on top of it.")
+    if args.force and d.is_dir():
+        merge_sealed_dir = sealed_dir(d)  # clear stale envelopes before reuse
+        if merge_sealed_dir.is_dir():
+            for f in merge_sealed_dir.glob("*.jsonl"):
+                f.unlink()
     if not d.is_dir():
         ns = argparse.Namespace(task=args.task)
         cmd_init(ns)
@@ -1068,7 +1115,11 @@ def set_phase(d, phase, who="moderator"):
         new = "status: " + phase + "\n" + text
     task.write_text(new, encoding="utf-8")
     note = "phase -> " + phase
-    if phase != "blind":
+    # Reveal ONLY when debate opens — not on a direct blind->closed jump, which
+    # would expose sealed claims without any cross-examination. If a panel is
+    # closed straight from blind, envelopes stay sealed; flip to debate to open
+    # them (or clear them with a fresh init).
+    if phase == "debate":
         revealed = merge_sealed(d)
         if revealed:
             note += " ({} sealed claim(s) revealed)".format(revealed)
@@ -1194,7 +1245,10 @@ def main(argv=None):
     if not getattr(args, "fn", None):
         p.print_help()
         return 0
-    return args.fn(args)
+    try:
+        return args.fn(args)
+    except ValueError as e:
+        return die(str(e))  # e.g. an invalid seat name reaching a path
 
 
 if __name__ == "__main__":

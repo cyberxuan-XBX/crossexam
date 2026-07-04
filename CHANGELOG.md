@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.1 — 2026-07-04
+
+Dogfood release. We ran CrossExam on its own source (Claude + Codex + a local
+Ollama model). The panel reproduced **6 real bugs the 48-test suite missed** —
+two vendors independently confirming each with running repros, the local
+model's "looks fine" claim challenged and conceded. All six are fixed here,
+each with a regression test:
+
+1. **Seat-name path traversal** (security): `CX_SEAT="../../pwned"` wrote a
+   file outside `_Msg/`. Seat names are now validated everywhere they become a
+   path.
+2. **`log --all` blind bypass** (security): a seated agent could reveal sealed
+   blind claims with `--all`; `--all` now only helps an unseated moderator.
+3. **Direct `blind → closed` early-revealed** sealed claims; reveal now
+   happens only when debate opens.
+4. **`merge_sealed()` crash** under concurrent phase flips (unlocked
+   read-then-unlink) — now serialized.
+5. **Stale `.sealed/` leak** across an abandoned/reused `_Msg/` — the "fresh"
+   check now counts sealed envelopes, and `--force` clears them.
+6. **Seal-vs-reveal race** could strand a claim in `.sealed/` past debate —
+   sealing and revealing now share a lock (`phase_lock`).
+
+The irony is the point: a tool for catching one model's blind spots caught its
+own author's, in a release literally named "hardening."
+
 ## 0.5.0 — 2026-07-04
 
 Hardening release — closing the gaps from our own audit.
