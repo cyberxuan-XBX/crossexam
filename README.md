@@ -196,7 +196,11 @@ Any number. Two seats gives you a reviewer; three-plus gives you a jury and
 majority signals.
 
 **Windows?**
-Yes — pure-stdlib Python; the file locking degrades gracefully.
+The protocol, tests, and all core commands (init/post/read/status/phase/log/
+hook/seat/brief/ingest) are pure-stdlib and run natively — file locking
+degrades gracefully. One caveat: `cxam run --agent` spawns seats through a
+POSIX shell, so on Windows drive agent seats from WSL or Git Bash (API and
+clipboard seats have no such requirement).
 
 ## Related work
 
