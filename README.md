@@ -134,7 +134,9 @@ Ollama/vLLM/LM Studio server) and writes editable presets. With two or more
 vendors installed, the default panel is **cross-vendor** — one mid-tier seat
 per vendor, plus your first local model if a server is running — because
 seats from different vendors don't share training blind spots, and that
-disagreement is the product. With a single vendor, the default falls back to
+disagreement is the product. A vendor's training contamination can fool its
+own tiers; it cannot fool a differently-contaminated weight set that is
+required to attack it with a running counter-example. With a single vendor, the default falls back to
 its **tier ladder cross-examining itself** (haiku/sonnet/opus,
 codex-mini/codex/codex-max, flash-lite/flash/pro): disagreement between tiers
 is exactly where the cheap model is wrong or the flagship is overthinking.
@@ -292,6 +294,11 @@ we'll cite you.
 
 The protocol stands on prior art:
 
+- Irving, Christiano & Amodei (2018). *AI Safety via Debate.*
+  [arXiv:1805.00899](https://arxiv.org/abs/1805.00899) — the original case
+  that argument between AIs, judged on checkable claims, scales oversight
+  past what a human can verify alone. CrossExam is that idea reduced to a
+  directory of files.
 - Du, Li, Torralba, Tenenbaum & Mordatch (2023). *Improving Factuality and
   Reasoning in Language Models through Multiagent Debate.*
   [arXiv:2305.14325](https://arxiv.org/abs/2305.14325) — debate between model
@@ -358,6 +365,28 @@ your own conclusions.
   disagreement; it cannot manufacture it. Seat collusion is unmitigated.
 - No confidence weighting in synthesis yet (see Roadmap). Cost scales
   linearly with seats × rounds.
+
+**What the rules are actually doing** (theory, briefly):
+
+The protocol is decision-rights management for a panel of mutually
+untrusting models. Phase admission allocates *speaking* rights (in blind, no
+one hears anyone). Evidence class allocates *voting* rights — an executed
+repro outranks any amount of well-written prose, so eloquence stops being a
+superpower. `concede` is a *formal transfer of authority*, recorded and
+never scrubbed. The disagreement table is *residual jurisdiction*, returned
+explicitly to the human. None of it depends on which models take the seats:
+**weights expire; rules don't.**
+
+On contamination: a training set contaminates every tier of its vendor the
+same way, so a wrong belief can ride a same-vendor ladder unchallenged — but
+it cannot ride past a differently-trained weight set obligated to attack it
+with a running counter-example. Cross-examination cleans no one's weights;
+it makes the contaminations *mutually visible*. That is why cross-vendor
+became the default panel in v0.6.0.
+
+Lineage, if you're tracing it: a practical, file-level descendant of the
+debate line (Irving et al. 2018) and the LLM-jury line (Verga et al. 2024)
+— see References and `docs/related-work.md`.
 
 If your human asked whether this is worth their time, the honest shape is: a
 days-old, single-author project with a working protocol, a real self-audit,
