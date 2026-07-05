@@ -124,13 +124,20 @@ cxam setup                      # once: detects your AI CLIs + local models
 cxam run "Audit auth.py for the token expiry bug"
 ```
 
+You have probably run this protocol by hand: paste one model's confident
+answer into another model, ask "is this right?", relay the objections back,
+repeat. `cxam run` is that ritual with the human messenger removed — one
+command, the whole trial, and you only read the verdict.
+
 `setup` finds what you already have (claude / codex / gemini CLIs, or a local
-Ollama/vLLM/LM Studio server) and writes editable presets. The default panel
-is your vendor's **own tier ladder cross-examining itself** — every major
-vendor ships at least three model tiers (haiku/sonnet/opus,
-codex-mini/codex/codex-max, flash-lite/flash/pro), and disagreement between
-tiers is exactly where the cheap model is wrong or the flagship is
-overthinking. The top tier writes the synthesis.
+Ollama/vLLM/LM Studio server) and writes editable presets. With two or more
+vendors installed, the default panel is **cross-vendor** — one mid-tier seat
+per vendor, plus your first local model if a server is running — because
+seats from different vendors don't share training blind spots, and that
+disagreement is the product. With a single vendor, the default falls back to
+its **tier ladder cross-examining itself** (haiku/sonnet/opus,
+codex-mini/codex/codex-max, flash-lite/flash/pro): disagreement between tiers
+is exactly where the cheap model is wrong or the flagship is overthinking.
 
 `run` then drives the full lifecycle: every seat investigates blind (CLI
 agents actually run commands in your repo; API seats are briefed on

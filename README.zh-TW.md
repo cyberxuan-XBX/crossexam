@@ -110,11 +110,17 @@ cxam setup                      # 一次性：偵測你裝的 AI CLI + 本地模
 cxam run "稽核 auth.py 的 token 過期 bug"
 ```
 
+這套流程你八成手動跑過：把 A 模型自信滿滿的答案貼給 B 模型問「這對嗎」，
+再把質疑貼回去，來回當傳話筒。`cxam run` 就是那個儀式，把人肉傳話筒拿掉
+——一條指令，整場審判，你只負責讀判決。
+
 `setup` 偵測你手上已有的東西（claude / codex / gemini CLI，或本地
-Ollama/vLLM/LM Studio），寫出可自行編輯的預設檔。預設面板 = 你那家廠商的
-**三層模型階梯互相詰問**——每家大廠都出至少三級模型（haiku/sonnet/opus、
-codex-mini/codex/codex-max、flash-lite/flash/pro），而層級之間的分歧，正好
-標出「便宜模型錯在哪」或「旗艦模型想太多」。最高層負責寫判決書。
+Ollama/vLLM/LM Studio），寫出可自行編輯的預設檔。裝了兩家以上廠商時，
+預設面板=**跨廠商**——每家出一個中階席，有本地模型伺服器就再加一席——
+因為不同廠商的席位不共享訓練盲點，而那個分歧正是產品本身。只裝一家時，
+退回該廠商的**三層模型階梯互相詰問**（haiku/sonnet/opus、
+codex-mini/codex/codex-max、flash-lite/flash/pro）：層級之間的分歧，正好
+標出「便宜模型錯在哪」或「旗艦模型想太多」。
 
 `run` 接著跑完整生命週期：各席位盲寫調查（CLI 席真的在你的 repo 跑指令；
 API 席自動被簡報 `_Msg/exhibits/` 的材料）→ 切入辯論互相詰問 → 產出

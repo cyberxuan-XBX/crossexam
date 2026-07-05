@@ -12,6 +12,22 @@
 | **Command execution** | `cxam run` spawns your configured CLIs headlessly; they run with whatever permissions you gave them (e.g. Claude's `--allowedTools`). CrossExam adds no sandbox of its own. Scope your agents' tool permissions as you would for any headless run. |
 | **Secrets in the arena** | Everything under `_Msg/` is plain text and may be read by every seat. Don't put credentials in `task.md` or `exhibits/`. |
 
+## Known degradations — loud, not silent
+
+Pragmatic fallbacks exist; since v0.6.0 every one of them announces itself
+on stderr instead of degrading quietly (independently flagged by an external
+AI code review, 2026-07-05):
+
+- **Missing/corrupt phase marker** (`task.md`): treated as **`blind`
+  (fail-closed)** with a warning — a corrupt marker can pause a debate, but
+  can never silently un-seal blind claims. Before v0.6.0 this defaulted open
+  to `debate`.
+- **Lock file can't be created**: the write proceeds unlocked, with a
+  warning naming the path.
+- **Windows lock wait exceeds timeout** (30s): proceeds rather than
+  deadlocks, with a warning. Under normal contention the stress tests hold
+  integrity (8 threads × 50 appends, zero loss — see test suite).
+
 ## Reporting a vulnerability
 
 Open a private report via GitHub Security Advisories on this repository.

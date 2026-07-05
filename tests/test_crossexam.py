@@ -723,3 +723,43 @@ def test_ten_seat_panel_stress(arena, cfg_home, monkeypatch, capsys):
     assert claimants == {"s{}".format(i) for i in range(10)}
     cursors = (arena / "_Msg" / ".seen")
     assert (arena / "_Msg" / "synthesis.md").is_file()
+
+
+# ------------------------------------------------- v0.6.0 regressions
+
+def test_read_phase_fails_closed_without_marker(tmp_path, capsys):
+    """No/corrupt task.md phase marker must NOT silently drop blind secrecy
+    (defaulting open to 'debate' was the same bug class as the v0.5.1 audit
+    findings). Fail closed to 'blind' and say so on stderr, once."""
+    d = tmp_path / "_Msg"
+    d.mkdir()
+    cx._phase_warned = False
+    assert cx.read_phase(d) == "blind"
+    assert "fail-closed" in capsys.readouterr().err
+    (d / "task.md").write_text("status: nonsense\n", encoding="utf-8")
+    assert cx.read_phase(d) == "blind"
+    assert capsys.readouterr().err == ""  # warned once per process, not spammed
+    (d / "task.md").write_text("status: debate\n", encoding="utf-8")
+    assert cx.read_phase(d) == "debate"
+
+
+def test_detect_presets_cross_vendor_default(monkeypatch):
+    """With >=2 vendor CLIs installed, setup must offer a cross-vendor panel
+    (one mid-tier seat per vendor) and cmd_setup must prefer it as default —
+    the flagship demo is cross-vendor disagreement; a same-vendor tier
+    ladder shares its vendor's blind spots."""
+    monkeypatch.setattr(cx.shutil, "which",
+                        lambda c: "/usr/bin/" + c if c in ("claude", "codex") else None)
+    monkeypatch.setattr(cx, "detect_local_models", lambda *a, **k: [])
+    presets = cx.detect_presets()
+    assert "cross-vendor" in presets
+    names = [a[0] for a in presets["cross-vendor"]["agents"]]
+    assert names == ["sonnet", "codex"]  # mid tier of each detected vendor
+    assert presets["cross-vendor"]["synthesis"] == "sonnet"
+
+
+def test_detect_presets_single_vendor_no_cross(monkeypatch):
+    monkeypatch.setattr(cx.shutil, "which",
+                        lambda c: "/usr/bin/claude" if c == "claude" else None)
+    monkeypatch.setattr(cx, "detect_local_models", lambda *a, **k: [])
+    assert "cross-vendor" not in cx.detect_presets()

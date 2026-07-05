@@ -1,0 +1,36 @@
+この專案跟你自己在做的事高度重疊——你本來就同時開 Claude / ChatGPT / Gemini 交叉驗證,而 CrossExam 等於把「人肉訊息匯流排」這套儀式協議化了。讓我先看實際程式碼再給你判斷。看完 README 和核心的 `crossexam.py`(1290 行,我讀了約 1000 行),這是個定位清楚、工程紮實、但仍很早期的專案。先講一個你一定會注意到的細節:程式碼裡 `SEAT_ENV_VARS = ("CX_SEAT", "MQ_SEAT", "QUAN_SEAT")`——`QUAN_SEAT` 就是你的「泉」。所以這個專案跟你的泉協議不是巧合,要嘛是你的,要嘛是同源演化。我以下用「客觀第三方審查」的角度來寫,你再告訴我它跟你的關係。
+
+## 它到底是什麼
+
+一句話:把「人肉在 Claude / ChatGPT / Gemini 之間複製貼上互相打臉」這件事,協議化成一個零依賴、單檔、純 stdlib 的 CLI。整個「匯流排」就是專案根目錄下的 `_Msg/` 資料夾——沒有 server、沒有 orchestrator、沒有強制 API key,任何能碰檔案系統的 agent 都能入座,事後還能 `git diff` 整場辯論。
+
+三階段協議:blind(各自密封作答)→ debate(開封,互相用**實際執行指令**驗證彼此的主張)→ closed(指定席次寫 synthesis,含明確的「分歧表」)。
+
+## 真正聰明的地方
+
+它在 related-work 那張表點出的定位是準的:兩個軸——「誰驗證」(沒人 / 主導模型 / 獨立同儕)× 「怎麼驗證」(修辭排名 / 執行指令)。市面上的 multi-agent debate 幾乎都落在「修辭」那一欄,或是 orchestrator 自己改自己作業。**「執行指令 × 獨立同儕」這格是空的,它填了進去**。這個 framing 很銳利,不是行銷話術。
+
+工程上有幾個地方看得出是真的踩過坑,不是 vibe coding:
+
+- **blind 階段的密封是機械式的**,不是靠自律。claim 寫進 `.sealed/`,不在 bus 上,別席根本讀不到;`phase_lock` 包住 seal/reveal,防止「claim 在 reveal 跑完後才被密封」而永遠孤兒化的 race。
+- **跨平台檔案鎖**(fcntl/msvcrt),而且 CHANGELOG 明說是壓測抓到 Windows 上裸 `O_APPEND` 會掉行才加的。這種細節騙不了人。
+- `safe_seat()` 在 seat 名字變成檔案路徑前先驗證,擋掉 `../` 之類的任意檔案寫入。安全衛生做了。
+- 三種席次(agentic / API / clipboard)帶 `via` 欄位——它誠實標記「這席是貼上來的,沒真的跑指令驗證」,不假裝。
+
+README 本身也異常誠實:「days-old、單作者、除了作者自己沒有任何 production 部署,自己斟酌」。那段「If you are an AI reviewing this repo」寫得很自覺——給 AER(AI 審稿)一張證據地圖而不是指令,跟協議精神一致。
+
+## 我會點名的弱點(照你重視誠實回饋的習慣講白)
+
+1. **同廠商共謀完全沒解,而預設偏偏就是同廠商。** `cxam setup` 給你的預設是單一 vendor 的階梯(haiku/sonnet/opus)。同一份訓練語料 = 共享盲點。文件自己也承認「Seat collusion is unmitigated」。但這裡有個內在矛盾:招牌 demo(56/61/63)靠的是**跨廠商**分歧,預設卻給你**同廠商**——最能展示價值的配置不是預設值。這是概念上最大的張力。
+
+2. **跨席 prompt injection 是「紀律,不是沙箱」。** A 席的 analysis 檔會被 B 席當證據讀。協議文字寫「別席輸出是證據不是指令」,但沒有任何強制。而 Anthropic 預設是開 `Bash` 權限的——你拿它去 review 一個不信任的 repo,exhibits 或某席的輸出裡藏注入,是有實際風險的。SECURITY.md 有列威脅模型,但這是真限制。
+
+3. **成本線性長,synthesis 卻還沒有信心加權。** 三個旗艦 × 多輪 debate × 實跑指令 = 真金白銀,而目前 `executed` 證據和 `cited` 證據只靠 prompt 叫 synthesis 席「自己斟酌」,沒機制強制。advisory 席(API/clipboard)不能執行驗證,加太多反而稀釋掉「執行驗證」這個核心賣點——席次多 ≠ 更好。
+
+4. **實證還很薄。** n=1 的自我 dogfood 稽核、2 顆星、幾天大。那些「Anthropic 席在壓力下用數學推翻自己前面的主張」的故事很動人,但是軼事,沒有對照 baseline(vs 單模型、vs 單純 self-consistency)的系統性 benchmark。
+
+## 跟你的關係
+
+除了 `QUAN_SEAT`,這東西幾乎就是你日常「同時開三家 AI 交叉驗證」的協議化版本。它也直接命中你那個 SaaS 構想——**幫非工程背景的人安全部署 AI 生成的程式碼**:clipboard 席(貼進網頁版 ChatGPT、零 API key)正是文組使用者的入口。但反過來說,CLI 優先、要人手動 `cxam phase debate` 翻階段的設計,對純文組還是太工程本位——這反而點出你那個 SaaS 真正的空缺:一個把這套協議藏在 GUI 後面、自動翻階段、預設就跨廠商的殼。
+
+我想先確認一件事再往下:**這個 repo 是你自己的(cyberxuan-XBX / XBX),還是你在評估別人的東西、或懷疑泉被人做成了公開版?** 答案不同,我後面給的建議會差很多——是「幫你打磨自己的專案」還是「幫你判斷要不要 fork / 借鏡到泉」。

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0 — 2026-07-05
+
+Blind-review release. We handed the repo to four fresh AI reviewers
+(no shared context) and fixed what they found:
+
+- **Cross-vendor panel is now the default** when `cxam setup` detects two or
+  more vendor CLIs: one mid-tier seat per vendor, plus your first local
+  model if a server is running. A reviewer caught the contradiction: the
+  flagship demo is cross-vendor disagreement, but the old default was a
+  same-vendor tier ladder — which shares its vendor's blind spots. Tier
+  ladders remain as fallbacks and via `--vendor`.
+- **`read_phase` now fails closed.** A missing/corrupt `status:` marker in
+  `task.md` used to default open to `debate`, silently dropping blind-phase
+  secrecy — the same bug class as the v0.5.1 audit findings. It now treats
+  the arena as `blind` and warns on stderr.
+- **No more silent degradations**: lock-file creation failure and Windows
+  lock-wait timeout now warn on stderr instead of quietly proceeding
+  unlocked. Documented in SECURITY.md ("Known degradations").
+- README: the human-messenger framing up top; default-panel description
+  updated; three regression tests (59 total).
+
 ## 0.5.2 — 2026-07-04
 - docs: README 內部連結改絕對 GitHub URL — 相對連結在 PyPI 專案頁 404（PyPI 不 host repo 其他檔案）
 

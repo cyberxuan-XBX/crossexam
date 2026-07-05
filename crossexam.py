@@ -12,7 +12,7 @@ no API keys, no vendor lock-in. If your agent can run shell commands, it
 can sit at the table.
 """
 
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 import argparse
 import datetime
@@ -227,6 +227,22 @@ def detect_presets():
             "apis": [[m.split(":")[0].split("/")[-1], LOCAL_ENDPOINT, m] for m in models],
             "synthesis": None,
         }
+    # Cross-vendor panel: the configuration this protocol exists for — one
+    # mid-tier seat per detected vendor, so no two seats share training
+    # blind spots. Same-vendor trios remain as fallbacks: a tier ladder
+    # catches "cheap model wrong", not "vendor wrong".
+    vendors_found = [v for v in VENDOR_TRIOS if v + "-trio" in presets]
+    if len(vendors_found) >= 2:
+        agents = [list(VENDOR_TRIOS[v]["agents"][1]) for v in vendors_found]
+        apis = []
+        if models:
+            m = models[0]
+            apis.append([m.split(":")[0].split("/")[-1], LOCAL_ENDPOINT, m])
+        presets["cross-vendor"] = {
+            "agents": agents,
+            "apis": apis,
+            "synthesis": agents[0][0],
+        }
     return presets
 
 
@@ -317,13 +333,26 @@ def get_seat():
     return None
 
 
+_phase_warned = False
+
+
 def read_phase(d):
     task = d / "task.md"
     if task.is_file():
         m = re.search(r"^status:\s*(\S+)", task.read_text(encoding="utf-8"), re.M)
         if m and m.group(1) in PHASES:
             return m.group(1)
-    return "debate"  # no/invalid phase marker -> least surprising default
+    # No/invalid phase marker: fail CLOSED. Defaulting to "debate" here would
+    # silently drop blind-phase secrecy on a corrupt/hand-rolled task.md —
+    # the exact bug class the v0.5.1 audit was about. "blind" keeps claims
+    # sealed until a moderator sets an explicit phase.
+    global _phase_warned
+    if not _phase_warned:
+        _phase_warned = True
+        print("warning: no valid phase marker in {} — treating phase as "
+              "'blind' (fail-closed). Run `cxam phase blind|debate|closed` "
+              "to set one.".format(task), file=sys.stderr)
+    return "blind"
 
 
 def load_msgs(d):
@@ -380,7 +409,9 @@ class _DirLock:
         try:
             self.fh = open(self.path, "a+")
         except OSError:
-            return self  # can't create lock file; proceed unlocked
+            print("warning: could not create lock file {} — proceeding "
+                  "unlocked".format(self.path), file=sys.stderr)
+            return self
         try:
             import fcntl
             fcntl.flock(self.fh, fcntl.LOCK_EX)  # blocks until acquired
@@ -399,6 +430,9 @@ class _DirLock:
                     time.sleep(0.02)
                     waited += 0.02
                     if waited >= self.timeout:
+                        print("warning: lock wait on {} timed out after {}s "
+                              "— proceeding unlocked".format(
+                                  self.path, self.timeout), file=sys.stderr)
                         return self  # give up waiting rather than deadlock
         except ImportError:
             return self
@@ -980,7 +1014,8 @@ def cmd_setup(args):
         return die("nothing detected. Install an AI CLI (claude / codex / "
                    "gemini) or start a local OpenAI-compatible server "
                    "(e.g. ollama), then rerun `cxam setup`.")
-    order = ["anthropic-trio", "openai-trio", "google-trio", "local-trio"]
+    order = ["cross-vendor", "anthropic-trio", "openai-trio", "google-trio",
+             "local-trio"]
     found = [n for n in order if n in presets]
     default = (args.vendor + "-trio") if args.vendor else found[0]
     if default not in presets:
