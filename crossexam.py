@@ -12,7 +12,7 @@ no API keys, no vendor lock-in. If your agent can run shell commands, it
 can sit at the table.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 import argparse
 import datetime
@@ -737,6 +737,17 @@ def cmd_post(args):
     if (args.type in ("verify", "challenge")) and not args.ref:
         print("cxam: warning: {} without --ref. Evidence or it didn't happen."
               .format(args.type), file=sys.stderr)
+    if args.type == "concede":
+        # RLHF models yield out of politeness. A concession should cost
+        # execution, not tone: reproduce the winning counter-example first
+        # (post verify --ref ...), then concede.
+        msgs, _ = load_msgs(d)
+        if not any(m.get("from") == seat and m.get("type") == "verify"
+                   for m in msgs):
+            print("cxam: warning: concede without a prior verify from your "
+                  "seat. Reproduce the winning counter-example yourself "
+                  "(post verify --ref ...) before yielding — concession "
+                  "should cost execution, not politeness.", file=sys.stderr)
     if post_message(d, rec) == "sealed":
         print("sealed as {} (claim) — envelopes open when the moderator flips "
               "to debate".format(seat))

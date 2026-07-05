@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.1 — 2026-07-05
+
+Second blind-review round (including one prompted to review at staff-engineer
+depth). Same contract as 0.6.0: fix what survives verification.
+
+- **Concede now has a cost.** `challenge`/`verify` always demanded `--ref`;
+  `concede` demanded nothing — and RLHF models yield out of politeness. A
+  seat that concedes without having posted any `verify` of its own now gets
+  a protocol warning: reproduce the winning counter-example first. Soft
+  enforcement, same as the evidence-ref rule (60 tests).
+- **Correlated injection is now the top-billed risk** (SECURITY.md): one
+  poisoned exhibit hits every seat at once — correlated errors are exactly
+  what cross-examination assumes away. Audits of adversary-controllable
+  input are explicitly unsupported until exhibit sanitization lands.
+- **Own-medicine wording fixes** in the AI-reviewer section: "voting rights"
+  is labeled a norm (not yet a mechanism — synthesis doesn't weight evidence
+  class); "cannot fool a differently-contaminated weight set" downgraded to
+  honest odds (frontier corpora overlap; agentic-seat assumption stated);
+  synthesis named as our own examiner-grades-own-exam residue.
+- Roadmap: benchmark vs. self-consistency k=3 (the null hypothesis to
+  kill), exhibit sanitization, seat reliability profiles, non-verifiable
+  task labeling.
+- **Clarified as breaking in 0.6.0** (below): `read_phase` fail-closed
+  changes behavior for hand-rolled `_Msg/` dirs without a `task.md` phase
+  marker — 0.5.x treated them as open (`debate`), 0.6.x treats them as
+  sealed (`blind`) and warns.
+
 ## 0.6.0 — 2026-07-05
 
 Blind-review release. We handed the repo to four fresh AI reviewers
@@ -11,10 +38,12 @@ Blind-review release. We handed the repo to four fresh AI reviewers
   flagship demo is cross-vendor disagreement, but the old default was a
   same-vendor tier ladder — which shares its vendor's blind spots. Tier
   ladders remain as fallbacks and via `--vendor`.
-- **`read_phase` now fails closed.** A missing/corrupt `status:` marker in
-  `task.md` used to default open to `debate`, silently dropping blind-phase
-  secrecy — the same bug class as the v0.5.1 audit findings. It now treats
-  the arena as `blind` and warns on stderr.
+- **Breaking — `read_phase` now fails closed.** A missing/corrupt `status:`
+  marker in `task.md` used to default open to `debate`, silently dropping
+  blind-phase secrecy — the same bug class as the v0.5.1 audit findings. It
+  now treats the arena as `blind` and warns on stderr. Hand-rolled `_Msg/`
+  dirs without a phase marker change behavior: add `status: debate` to your
+  `task.md` to keep the old semantics.
 - **No more silent degradations**: lock-file creation failure and Windows
   lock-wait timeout now warn on stderr instead of quietly proceeding
   unlocked. Documented in SECURITY.md ("Known degradations").

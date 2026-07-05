@@ -763,3 +763,21 @@ def test_detect_presets_single_vendor_no_cross(monkeypatch):
                         lambda c: "/usr/bin/claude" if c == "claude" else None)
     monkeypatch.setattr(cx, "detect_local_models", lambda *a, **k: [])
     assert "cross-vendor" not in cx.detect_presets()
+
+
+def test_concede_without_prior_verify_warns(arena, monkeypatch, capsys):
+    """T3 review, 2026-07-05: challenge/verify demand --ref but concede
+    demanded nothing, and RLHF models yield out of politeness. A concession
+    should cost execution: warn when a seat concedes without having posted
+    any verify of its own."""
+    assert cx.main(["phase", "debate"]) == 0
+    capsys.readouterr()
+    seat(monkeypatch, "qwen")
+    assert cx.main(["post", "concede", "adopting sonnet's frame"]) == 0
+    assert "concede without a prior verify" in capsys.readouterr().err
+    # after posting a verify, the same seat concedes without the warning
+    assert cx.main(["post", "verify", "reproduced sonnet's counter-example",
+                    "--ref", "analysis/qwen.md#repro"]) == 0
+    capsys.readouterr()
+    assert cx.main(["post", "concede", "conceding on executed evidence"]) == 0
+    assert "concede without a prior verify" not in capsys.readouterr().err

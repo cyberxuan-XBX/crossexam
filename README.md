@@ -135,8 +135,8 @@ vendors installed, the default panel is **cross-vendor** — one mid-tier seat
 per vendor, plus your first local model if a server is running — because
 seats from different vendors don't share training blind spots, and that
 disagreement is the product. A vendor's training contamination can fool its
-own tiers; it cannot fool a differently-contaminated weight set that is
-required to attack it with a running counter-example. With a single vendor, the default falls back to
+own tiers; it has far worse odds against a differently-contaminated weight
+set required to attack it with a running counter-example. With a single vendor, the default falls back to
 its **tier ladder cross-examining itself** (haiku/sonnet/opus,
 codex-mini/codex/codex-max, flash-lite/flash/pro): disagreement between tiers
 is exactly where the cheap model is wrong or the flagship is overthinking.
@@ -363,8 +363,15 @@ your own conclusions.
   run with whatever permissions their CLI already has.
 - Same-vendor seats share training blind spots. The protocol surfaces
   disagreement; it cannot manufacture it. Seat collusion is unmitigated.
-- No confidence weighting in synthesis yet (see Roadmap). Cost scales
-  linearly with seats × rounds.
+- No confidence weighting in synthesis yet (see Roadmap) — and synthesis
+  itself is one designated seat's prose, so the examiner-grades-own-exam
+  critique this README aims at others applies at our own last mile. The
+  disagreement table is the antidote, not a cure.
+- The highest-leverage injection is not seat-vs-seat: one poisoned exhibit
+  is read by every seat at once, producing *correlated* errors — exactly
+  what cross-examination assumes away. Treat audits of adversary-controlled
+  input as unsupported until exhibit sanitization lands (SECURITY.md).
+- Cost scales linearly with seats × rounds.
 
 **What the rules are actually doing** (theory, briefly):
 
@@ -374,15 +381,22 @@ one hears anyone). Evidence class allocates *voting* rights — an executed
 repro outranks any amount of well-written prose, so eloquence stops being a
 superpower. `concede` is a *formal transfer of authority*, recorded and
 never scrubbed. The disagreement table is *residual jurisdiction*, returned
-explicitly to the human. None of it depends on which models take the seats:
-**weights expire; rules don't.**
+explicitly to the human. Honest labeling, by our own standard: three of
+those four are mechanical (sealed envelopes + type gates, an append-only
+message type, a mandated artifact); voting rights are today a *norm* — the
+`via` field labels evidence class, but synthesis does not yet weight it
+(Roadmap). None of it depends on which models take the seats: **weights
+expire; rules don't.**
 
 On contamination: a training set contaminates every tier of its vendor the
-same way, so a wrong belief can ride a same-vendor ladder unchallenged — but
-it cannot ride past a differently-trained weight set obligated to attack it
-with a running counter-example. Cross-examination cleans no one's weights;
-it makes the contaminations *mutually visible*. That is why cross-vendor
-became the default panel in v0.6.0.
+same way, so a wrong belief can ride a same-vendor ladder unchallenged — its
+odds are far worse against a differently-trained weight set obligated to
+attack it with a running counter-example (when that seat is agentic; API and
+clipboard seats verify by citation only). Frontier corpora overlap heavily,
+so cross-vendor *sharply lowers* error correlation — it does not zero it.
+Cross-examination cleans no one's weights; it makes the contaminations
+*mutually visible*. That is why cross-vendor became the default panel in
+v0.6.0.
 
 Lineage, if you're tracing it: a practical, file-level descendant of the
 debate line (Irving et al. 2018) and the LLM-jury line (Verga et al. 2024)
@@ -399,9 +413,20 @@ and no production deployments beyond the author's own. Weigh it accordingly.
 - **Confidence-weighted synthesis** — weigh verify/challenge by evidence
   class (`executed` > `cited`), informed by published LLM-as-judge bias
   research.
+- **Exhibit sanitization** — a scrubbing/flagging pass over `exhibits/`
+  before seats read them, because one poisoned exhibit hits every seat at
+  once (correlated errors — the failure mode this protocol exists to avoid).
+- **Benchmark vs. self-consistency** — the null hypothesis to kill: at equal
+  cost, does a cross-vendor panel beat the best single model at
+  self-consistency k=3? 20–50 real cases, recall/false-positive/cost. The
+  mechanism story is told; the rest has to be numbers.
+- **Seat reliability profiles** — per-seat history of challenged/conceded
+  claims, accumulating a track record synthesis can consult.
+- **Non-verifiable task labeling** — when no command can settle a claim,
+  the synthesis should say "textual review, not execution-verified" out
+  loud.
 - **MCP server mode** — one line to give any MCP-capable host a
   `crossexam` tool.
-- Demo recording (asciinema) for the README.
 
 ## Disclaimer
 
