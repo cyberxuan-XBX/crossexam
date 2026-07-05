@@ -354,6 +354,10 @@ your own conclusions.
   first-class message type, not an embarrassment to scrub.
 - `examples/simulated-debate.sh` runs the entire protocol with no AI attached
   in ~5 seconds, if you want to observe the wire format directly.
+- `docs/blind-reviews/` — eight commissioned AI reviews of this repo (two
+  rounds, one at staff depth), each with a provenance header stating its
+  evidence class. What got fixed correlates with evidence class, not
+  eloquence — the protocol's thesis, replayed on its own reviewers.
 
 **Known limitations** (better you find them here than discover them):
 
